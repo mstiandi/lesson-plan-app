@@ -181,6 +181,28 @@
     color: #bbb;
   }
 
+  /* Foldable sections */
+  .foldable-heading {
+    cursor: pointer;
+    user-select: none;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .foldable-heading::before {
+    content: '▼';
+    font-size: 12px;
+    transition: transform 0.2s;
+  }
+  .foldable-heading.collapsed::before {
+    content: '▶';
+  }
+  .foldable-body {
+    overflow: hidden;
+    transition: max-height 0.3s;
+  }
+  .foldable-body.hidden {
+    display: none;
+  }
+
   .upload-zone {
     border: 2px dashed #ccc; border-radius: 12px;
     padding: 32px; text-align: center; color: #999;
@@ -916,6 +938,33 @@ function renderToEditor(markdown) {
   if (inTable) out += '</table>';
 
   editor.innerHTML = out;
+  applyFoldable(editor);
+}
+
+function applyFoldable(editor) {
+  // Wrap each h2 and its content in a foldable container
+  const h2s = editor.querySelectorAll('h2');
+  h2s.forEach((h2, i) => {
+    h2.classList.add('foldable-heading');
+    const body = document.createElement('div');
+    body.classList.add('foldable-body');
+    let next = h2.nextElementSibling;
+    while (next && next.tagName !== 'H2') {
+      const temp = next.nextElementSibling;
+      body.appendChild(next);
+      next = temp;
+    }
+    h2.parentNode.insertBefore(body, h2.nextElementSibling);
+    h2.onclick = () => {
+      h2.classList.toggle('collapsed');
+      body.classList.toggle('hidden');
+    };
+    // First section expanded, rest collapsed
+    if (i > 0) {
+      h2.classList.add('collapsed');
+      body.classList.add('hidden');
+    }
+  });
 }
 
 function execCmd(cmd, arg) {
