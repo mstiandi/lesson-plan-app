@@ -1,6 +1,5 @@
 import uuid
 import asyncio
-import time
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import Response
@@ -23,25 +22,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 router = APIRouter(prefix="/api")
 executor = ThreadPoolExecutor(max_workers=3)
-
-# Render cache: token → (pdf_bytes, expiry_timestamp)
-_render_cache: dict[str, tuple[bytes, float]] = {}
-_RENDER_CACHE_TTL = 600  # 10 minutes
-
-
-def _cache_cleanup():
-    """Remove expired entries from render cache."""
-    now = time.time()
-    expired = [k for k, v in _render_cache.items() if v[1] < now]
-    for k in expired:
-        del _render_cache[k]
-
-
-def _cache_put(pdf_bytes: bytes) -> str:
-    _cache_cleanup()
-    token = uuid.uuid4().hex
-    _render_cache[token] = (pdf_bytes, time.time() + _RENDER_CACHE_TTL)
-    return token
 
 
 @router.post("/requirements/query")
@@ -287,32 +267,12 @@ async def render_handwritten(req: RenderRequest):
         )
         pdf_bytes = pages_to_pdf(pages)
 
-        # Cache for download and return token
-        token = _cache_put(pdf_bytes)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"X-Download-Token": token},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/handwriting/download/{token}/{filename}")
-async def download_rendered(token: str, filename: str):
-    """Serve a previously rendered PDF as a file download."""
-    _cache_cleanup()
-    entry = _render_cache.get(token)
-    if not entry:
-        raise HTTPException(status_code=404, detail="PDF 已过期或不存，请重新生成")
-    pdf_bytes, _ = entry
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
-        },
-    )
 
 
 @router.get("/locations")

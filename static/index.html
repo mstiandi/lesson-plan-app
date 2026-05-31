@@ -1044,8 +1044,6 @@ async function renderAndDownload(content, sid, useDefault, fontName) {
     }
 
     const blob = await r.blob();
-    const token = r.headers.get('X-Download-Token');
-    if (token) window._downloadToken = token;
     window._pdfBlob = blob;
 
     const url = URL.createObjectURL(blob);
@@ -1064,15 +1062,18 @@ async function renderAndDownload(content, sid, useDefault, fontName) {
 }
 
 function downloadPDF() {
-  if (!window._downloadToken) return;
+  if (!window._pdfBlob) return;
   const prefix = getBusinessName(currentBusiness);
   const ts = new Date().toISOString().slice(0,16).replace('T','-').replace(':','');
   const filename = prefix + '-手写版-' + ts + '.pdf';
+  const url = URL.createObjectURL(window._pdfBlob);
   const a = document.createElement('a');
-  a.href = '/api/handwriting/download/' + window._downloadToken + '/' + encodeURIComponent(filename);
+  a.href = url;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
 }
 
 // ===== HANDWRITING TRAINING =====
