@@ -13,7 +13,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="教案草稿生成器 v2", lifespan=lifespan)
+app = FastAPI(title="教师教案助手", lifespan=lifespan)
 
 app.include_router(lesson_router)
 
