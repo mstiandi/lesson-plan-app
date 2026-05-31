@@ -3,6 +3,6 @@ uvicorn[standard]>=0.23.0
 anthropic>=0.30.0
 Pillow>=10.0.0
 fpdf2>=2.7.0
-easyocr>=1.7.0
 python-multipart>=0.0.6
+# easyocr>=1.7.0  # 可选：笔迹训练功能需要。本地使用请取消注释并 pip install
 handright>=8.0.0
