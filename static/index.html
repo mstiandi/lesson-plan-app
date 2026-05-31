@@ -72,7 +72,7 @@
     .upload-zone { padding: 20px 12px; }
     .upload-previews img { width: 48px; height: 48px; }
     #editor { min-height: 300px; padding: 12px; font-size: 15px; }
-    #pdfFrame { height: 60vh; }
+    #pdfEmbed { height: 60vh; }
     .business-cards { grid-template-columns: 1fr; }
   }
   label {
@@ -221,7 +221,7 @@
     transition: width 0.3s;
   }
 
-  #pdfFrame { width: 100%; height: 80vh; border: 1px solid #ddd; border-radius: 8px; }
+  #pdfEmbed { width: 100%; height: 80vh; border: 1px solid #ddd; border-radius: 8px; }
 
   .font-cards {
     display: grid;
@@ -549,7 +549,7 @@
         <span style="font-weight:600;">PDF 预览</span>
         <button class="btn-outline btn-sm" id="previewDownloadBtn" onclick="downloadPDF()">下载此PDF</button>
       </div>
-      <iframe id="pdfFrame"></iframe>
+      <embed id="pdfEmbed" type="application/pdf" style="width:100%;height:80vh;border:1px solid #ddd;border-radius:8px;">
     </div>
   </div>
 </div>
@@ -1047,8 +1047,7 @@ async function renderAndDownload(content, sid, useDefault, fontName) {
     window._pdfBlob = blob;
 
     const url = URL.createObjectURL(blob);
-    const pdfFrame = document.getElementById('pdfFrame');
-    pdfFrame.src = url;
+    document.getElementById('pdfEmbed').src = url;
     document.getElementById('pdfPreview').classList.remove('hidden');
     const elapsed = Math.round((Date.now() - startTime) / 1000);
     spinner.textContent = '渲染完成（耗时' + elapsed + '秒）';
