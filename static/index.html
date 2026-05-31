@@ -360,7 +360,8 @@
     <!-- 2c: 学校要求（硬性限制） -->
     <div class="req-box">
       <label>学校要求 — 请确认后才能生成</label>
-      <textarea id="requirementsText" placeholder="填写学校名称后，点击「智能查询」获取该校要求，也可手动输入&#10;例如：&#10;1. 教案须体现分层教学，A/B/C 三层目标&#10;2. 教学过程须有明确的时间分配&#10;3. 板书设计须用思维导图形式"></textarea>
+      <textarea id="requirementsText" rows="6" placeholder="填写学校名称后，点击「智能查询」获取该校要求，也可手动输入&#10;例如：&#10;1. 教案须体现分层教学，A/B/C 三层目标&#10;2. 教学过程须有明确的时间分配&#10;3. 板书设计须用思维导图形式"></textarea>
+      <div id="reqSource" style="font-size:11px;color:#aaa;margin-top:2px;"></div>
       <div class="req-status">
         <span id="reqStatus"></span>
         <button class="btn-outline btn-sm" id="reqQueryBtn" onclick="queryRequirements(currentBusiness)">智能查询</button>
@@ -701,6 +702,7 @@ async function switchBusiness(type) {
 
   // Reset — user must manually query or type requirements
   document.getElementById('requirementsText').value = '';
+  document.getElementById('reqSource').textContent = '';
   requirementsConfirmed = false;
   document.getElementById('reqStatus').textContent = '';
   document.getElementById('reqConfirmBtn').classList.add('hidden');
@@ -712,6 +714,7 @@ async function queryRequirements(type) {
   const schoolName = document.getElementById('schoolName').value.trim();
   if (!schoolName) {
     document.getElementById('requirementsText').value = '';
+    document.getElementById('reqSource').textContent = '';
     document.getElementById('reqStatus').textContent = '请先在 Section 1 填写学校名称';
     document.getElementById('reqConfirmBtn').classList.add('hidden');
     return;
@@ -740,6 +743,7 @@ async function queryRequirements(type) {
     if (!data.success) throw new Error(data.detail || '查询失败');
 
     document.getElementById('requirementsText').value = data.requirements;
+    document.getElementById('reqSource').textContent = data.source || '';
     statusEl.textContent = '请审阅并确认以上要求（可修改后确认）';
     document.getElementById('reqConfirmBtn').classList.remove('hidden');
   } catch(e) {

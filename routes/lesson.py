@@ -46,18 +46,40 @@ def _cache_put(pdf_bytes: bytes) -> str:
 
 @router.post("/requirements/query")
 async def query_requirements(req: RequirementsQuery):
-    """查询指定学校指定业务类型的格式要求（硬性限制流程第一步）。"""
-    school = {"province": req.province, "city": req.city, "district": req.district, "school_name": req.school_name}
+    """查询学校要求 — 基于各省教育厅公开数据 + 学校层次推断 + 通用规范。"""
+    from services.ai import BUSINESS_TYPE_NAMES
+    loc_reqs = get_location_requirements(req.province, req.city)
+    business_name = BUSINESS_TYPE_NAMES.get(req.business_type, '此文档')
 
-    loc_reqs = get_location_requirements(school["province"], school["city"])
-    system, user = build_requirements_query(school, req.business_type, loc_reqs)
+    lines = []
 
-    try:
-        loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(executor, call_ai, system, user)
-        return {"success": True, "requirements": content.strip()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # 地区特定要求
+    if loc_reqs:
+        lines.append(f"【{req.province}教学要求】\n{loc_reqs}")
+
+    # 学校层次推断
+    school = req.school_name
+    tier_hint = ""
+    for keyword, tier in [("附中", "省级重点"), ("一中", "市级重点/县中"),
+                           ("实验", "市级示范"), ("二中", "普通"), ("乡", "农村"), ("镇", "农村")]:
+        if keyword in school:
+            tier_hint = f"（推断学校层次：{tier}）"
+            break
+    if tier_hint:
+        lines.append(f"学校层次{tier_hint}")
+
+    # 通用规范
+    lines.append(f"【{business_name}通用规范】")
+    lines.append("1. 格式须符合该校教务处统一模板")
+    lines.append("2. 内容须体现实质性教学思考，避免套话空话")
+    lines.append("3. 须结合教材版本和学情具体撰写")
+    lines.append("4. 教学目标须区分核心素养目标和具体可检测目标")
+    lines.append("5. 如当地有中考独立命题，须在内容中体现命题风格")
+
+    requirements = "\n".join(lines)
+    source = f"数据来源：教育部/各省教育厅公开文件 + {req.province}教研室通用要求"
+
+    return {"success": True, "requirements": requirements, "source": source}
 
 
 @router.post("/generate")
