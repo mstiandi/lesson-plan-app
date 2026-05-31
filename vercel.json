@@ -1,6 +1,6 @@
 {
   "functions": {
-    "routes/lesson.py": {
+    "*.py": {
       "maxDuration": 60
     }
   }
