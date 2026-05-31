@@ -13,11 +13,3 @@ _test_*
 _verify*
 _local*
 test_*
-
-# Heavy fonts not needed for deployment
-fonts/LXGWZhenKaiGB-Regular.ttf
-fonts/LXGWWenKai-Regular.ttf
-fonts/MaokenYingBiKaiShuJ.ttf
-fonts/YShiWrittenSC-Regular.ttf
-fonts/Yozai-Regular.ttf
-fonts/Xiaolai-Regular.ttf
