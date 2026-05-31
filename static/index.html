@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>教案草稿生成器 v3</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { overflow-y: auto; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f2f1ec;
+    color: #333;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .container { max-width: 860px; margin: 0 auto; padding: 8px 16px 120px; }
+  header {
+    text-align: center;
+    padding: 12px 0 0;
+  }
+  header h1 { font-size: 20px; font-weight: 700; color: #1a1a1a; }
+  header p { font-size: 12px; color: #888; margin-top: 1px; }
+
+  .status-bar {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #888; margin-bottom: 4px; padding: 0 4px;
+  }
+  .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+  .status-dot.on { background: #4a7c59; }
+  .status-dot.off { background: #c33; }
+
+  .section {
+    background: #fff;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .section-title {
+    font-size: 14px; font-weight: 700; color: #2c2c2c;
+    margin-bottom: 8px; padding-bottom: 4px;
+    border-bottom: 2px solid #4a7c59;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .section-number {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; background: #4a7c59; color: #fff;
+    border-radius: 50%; font-size: 12px; font-weight: 700; flex-shrink: 0;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .form-row.col-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .form-row.col-1 { grid-template-columns: 1fr; }
+  @media (max-width: 600px) {
+    .form-row, .form-row.col-3 { grid-template-columns: 1fr; }
+    .container { padding: 8px 12px 60px; }
+    header { padding: 12px 0 0; }
+    header h1 { font-size: 18px; }
+    .section { padding: 12px; border-radius: 10px; margin-bottom: 6px; }
+    .section-title { font-size: 13px; }
+    button { padding: 12px 16px; font-size: 15px; min-height: 44px; }
+    .btn-sm { padding: 7px 14px; font-size: 13px; min-height: 36px; }
+    input, select { padding: 10px; font-size: 16px; }
+    label { font-size: 13px; }
+    .upload-zone { padding: 20px 12px; }
+    .upload-previews img { width: 48px; height: 48px; }
+    #editor { min-height: 300px; padding: 12px; font-size: 15px; }
+    #pdfFrame { height: 60vh; }
+    .business-cards { grid-template-columns: 1fr; }
+  }
+  label {
+    display: block;
+    font-size: 12px; font-weight: 600; color: #555; margin-bottom: 2px;
+  }
+  input, select {
+    width: 100%; padding: 8px 10px;
+    border: 1px solid #ddd; border-radius: 6px;
+    font-size: 14px; font-family: inherit;
+    background: #fafafa;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus { outline: none; border-color: #4a7c59; background: #fff; }
+  select:disabled { background: #eee; color: #999; cursor: not-allowed; }
+
+  button {
+    padding: 10px 20px; border: none; border-radius: 6px;
+    font-size: 14px; font-weight: 600; font-family: inherit;
+    cursor: pointer; transition: all 0.15s;
+  }
+  button:disabled { cursor: not-allowed; }
+  .btn-primary { background: #4a7c59; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #3d6a4b; }
+  .btn-primary:disabled { background: #b0c4b3; }
+  .btn-outline {
+    background: #fff; color: #4a7c59;
+    border: 1px solid #4a7c59;
+  }
+  .btn-outline:hover:not(:disabled) { background: #f0f7f1; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+  .btn-full { width: 100%; }
+
+  /* Business cards */
+  .business-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .business-card {
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    padding: 12px 8px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: #fff;
+  }
+  .business-card:hover { border-color: #4a7c59; background: #f8fbf8; }
+  .business-card.selected { border-color: #4a7c59; background: #f0f7f1; box-shadow: 0 0 0 2px rgba(74,124,89,0.2); }
+  .business-card .icon { font-size: 28px; margin-bottom: 4px; }
+  .business-card .name { font-size: 14px; font-weight: 700; color: #2c2c2c; }
+  .business-card .desc { font-size: 11px; color: #999; margin-top: 2px; }
+
+  /* Requirements area */
+  .req-box {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 12px;
+    background: #fafaf8;
+    margin-bottom: 12px;
+  }
+  .req-status {
+    font-size: 12px;
+    margin-top: 6px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .req-box textarea {
+    width: 100%; min-height: 90px;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px; font-family: inherit;
+    resize: vertical;
+    background: #fff;
+  }
+  .req-box textarea:focus { outline: none; border-color: #4a7c59; }
+
+  /* Editor */
+  .editor-toolbar {
+    display: flex; gap: 4px; padding: 8px; background: #f8f8f6;
+    border: 1px solid #ddd; border-bottom: none; border-radius: 8px 8px 0 0;
+    flex-wrap: wrap;
+  }
+  .editor-toolbar button {
+    width: 32px; height: 32px; padding: 0;
+    font-size: 14px; font-weight: 700; background: #fff;
+    border: 1px solid #ddd; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .editor-toolbar button:hover { background: #e8f0e9; }
+  .editor-toolbar .sep { width: 1px; background: #ddd; margin: 0 4px; }
+  #editor {
+    min-height: 400px; padding: 16px 20px;
+    border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px;
+    background: #fdfbf7; font-size: 15px; line-height: 1.8;
+    outline: none; overflow-y: auto;
+  }
+  #editor h2 { font-size: 18px; margin: 16px 0 6px; color: #2c2c2c; }
+  #editor h3 { font-size: 16px; margin: 12px 0 4px; color: #444; }
+  #editor ul, #editor ol { padding-left: 20px; }
+  #editor li { margin: 2px 0; }
+  #editor:empty::before {
+    content: '生成后的文档将显示在这里，可直接编辑…';
+    color: #bbb;
+  }
+
+  .upload-zone {
+    border: 2px dashed #ccc; border-radius: 12px;
+    padding: 32px; text-align: center; color: #999;
+    transition: border-color 0.2s, background 0.2s;
+    cursor: pointer;
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: #4a7c59; background: #f8fbf8; }
+  .upload-zone input { display: none; }
+  .upload-previews { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .upload-previews img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd; }
+
+  .spinner {
+    display: none; text-align: center; padding: 24px; color: #888;
+  }
+  .spinner.show { display: block; }
+  .spinner::after {
+    content: ''; display: block; width: 32px; height: 32px;
+    margin: 8px auto 0;
+    border: 3px solid #e0e0e0; border-top-color: #4a7c59;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-toast {
+    display: none;
+    background: #fff0f0; border: 1px solid #fcc; color: #c33;
+    padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 12px;
+  }
+  .error-toast.show { display: block; }
+
+  .progress-bar {
+    width: 100%; height: 6px; background: #e8e8e8; border-radius: 3px;
+    margin-top: 8px; overflow: hidden; display: none;
+  }
+  .progress-bar.show { display: block; }
+  .progress-fill {
+    height: 100%; background: #4a7c59; border-radius: 3px;
+    transition: width 0.3s;
+  }
+
+  #pdfFrame { width: 100%; height: 80vh; border: 1px solid #ddd; border-radius: 8px; }
+
+  .font-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 600px) {
+    .font-cards { grid-template-columns: 1fr; }
+  }
+  .font-card {
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    background: #fff;
+  }
+  .font-card:hover { border-color: #4a7c59; }
+  .font-card.selected { border-color: #4a7c59; background: #f0f7f1; }
+  .font-preview-img {
+    width: 100%;
+    height: 36px;
+    object-fit: contain;
+    object-position: left center;
+    margin-bottom: 4px;
+  }
+  .font-name { font-size: 13px; color: #555; text-align: center; }
+
+  details summary { font-size: 13px; color: #888; cursor: pointer; }
+  details summary:hover { color: #555; }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>教案草稿生成器 v3</h1>
+    <p>教案 / 教学计划 / 教学总结 — AI 生成 + 手写PDF</p>
+  </header>
+
+  <div class="status-bar">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">检查连接…</span>
+  </div>
+
+  <div class="error-toast" id="errorToast"></div>
+
+  <!-- SECTION 1: 学校信息 -->
+  <div class="section">
+    <div class="section-title"><span class="section-number">1</span> 学校信息</div>
+    <div class="form-row">
+      <div>
+        <label for="province">省 / 直辖市</label>
+        <select id="province"><option value="">加载中…</option></select>
+        <input type="text" id="provinceManual" placeholder="手动输入省名" style="display:none;margin-top:4px;">
+        <a href="#" onclick="toggleManual('province');return false;"
+           style="font-size:11px;color:#888;">找不到？手动输入</a>
+      </div>
+      <div>
+        <label for="city">市 / 区</label>
+        <select id="city" disabled><option value="">请先选择省份</option></select>
+        <input type="text" id="cityManual" placeholder="手动输入市名" style="display:none;margin-top:4px;">
+        <a href="#" onclick="toggleManual('city');return false;"
+           style="font-size:11px;color:#888;">找不到？手动输入</a>
+      </div>
+    </div>
+    <div class="form-row">
+      <div>
+        <label for="district">县 / 镇 <span style="font-weight:400;color:#999;">（可选）</span></label>
+        <select id="district" disabled><option value="">请先选择市</option></select>
+        <input type="text" id="districtManual" placeholder="手动输入县/镇名" style="display:none;margin-top:4px;">
+        <a href="#" onclick="toggleManual('district');return false;"
+           style="font-size:11px;color:#888;">找不到？手动输入</a>
+      </div>
+      <div>
+        <label for="schoolName">学校名称</label>
+        <input type="text" id="schoolName" placeholder="例如：天河中学" onchange="onSchoolNameChange()">
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2: 业务选择 + 学校要求 + 教学信息 -->
+  <div class="section">
+    <div class="section-title"><span class="section-number">2</span> 业务选择 + 学校要求</div>
+
+    <!-- 2a: 业务卡片 -->
+    <div class="business-cards" id="businessCards">
+      <div class="business-card selected" data-type="lesson_plan" onclick="switchBusiness('lesson_plan')">
+        <div class="icon">📖</div>
+        <div class="name">教案</div>
+        <div class="desc">单课时教学设计</div>
+      </div>
+      <div class="business-card" data-type="teaching_plan" onclick="switchBusiness('teaching_plan')">
+        <div class="icon">📋</div>
+        <div class="name">教学计划</div>
+        <div class="desc">学期教学进度安排</div>
+      </div>
+      <div class="business-card" data-type="teaching_summary" onclick="switchBusiness('teaching_summary')">
+        <div class="icon">📝</div>
+        <div class="name">教学总结</div>
+        <div class="desc">学期末教学回顾</div>
+      </div>
+    </div>
+
+    <!-- 2b: 共用教学信息 -->
+    <div class="form-row">
+      <div>
+        <label for="subject">学科</label>
+        <select id="subject">
+          <option value="语文">语文</option><option value="数学">数学</option>
+          <option value="英语">英语</option><option value="物理">物理</option>
+          <option value="化学">化学</option><option value="生物">生物</option>
+          <option value="道德与法治">道德与法治</option><option value="历史">历史</option>
+          <option value="地理">地理</option>
+        </select>
+      </div>
+      <div>
+        <label for="grade">年级</label>
+        <select id="grade">
+          <option value="七年级">七年级</option><option value="八年级">八年级</option>
+          <option value="九年级">九年级</option>
+        </select>
+      </div>
+      <div>
+        <label for="textbook">教材版本</label>
+        <select id="textbook">
+          <option value="人教版">人教版</option><option value="苏教版">苏教版</option>
+          <option value="北师大版">北师大版</option><option value="冀教版">冀教版</option>
+          <option value="鲁教版">鲁教版</option><option value="部编版">部编版</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 2c: 学校要求（硬性限制） -->
+    <div class="req-box">
+      <label>学校要求 — 请确认后才能生成</label>
+      <textarea id="requirementsText" placeholder="填写学校名称后，点击「智能查询」获取该校要求，也可手动输入&#10;例如：&#10;1. 教案须体现分层教学，A/B/C 三层目标&#10;2. 教学过程须有明确的时间分配&#10;3. 板书设计须用思维导图形式"></textarea>
+      <div class="req-status">
+        <span id="reqStatus"></span>
+        <button class="btn-outline btn-sm" id="reqQueryBtn" onclick="queryRequirements(currentBusiness)">智能查询</button>
+        <button class="btn-primary btn-sm hidden" id="reqConfirmBtn" onclick="confirmRequirements()">确认要求</button>
+      </div>
+    </div>
+
+    <!-- 2d: 业务专属字段 -->
+    <div id="extraFieldsLessonPlan">
+      <div class="form-row">
+        <div>
+          <label for="topic">课题名称</label>
+          <input type="text" id="topic" placeholder="例如：背影 / 一元二次方程">
+        </div>
+        <div>
+          <label for="hours">课时数</label>
+          <select id="hours">
+            <option value="1">1课时</option><option value="2">2课时</option><option value="3">3课时</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div id="extraFieldsTeachingPlan" class="hidden">
+      <div class="form-row">
+        <div>
+          <label for="semesterPlan">学期</label>
+          <select id="semesterPlan">
+            <option value="上学期">上学期</option><option value="下学期">下学期</option>
+          </select>
+        </div>
+        <div>
+          <label for="weeksPlan">教学周数</label>
+          <select id="weeksPlan">
+            <option value="18">18周</option><option value="19">19周</option>
+            <option value="20" selected>20周</option><option value="21">21周</option><option value="22">22周</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row col-1">
+        <div>
+          <label for="classSituation">班级情况 <span style="font-weight:400;color:#999;">（可选）</span></label>
+          <input type="text" id="classSituation" placeholder="例如：班级共45人，整体基础中等，有5-6人学习困难">
+        </div>
+      </div>
+    </div>
+
+    <div id="extraFieldsTeachingSummary" class="hidden">
+      <div class="form-row">
+        <div>
+          <label for="semesterSummary">学期</label>
+          <select id="semesterSummary">
+            <option value="上学期">上学期</option><option value="下学期">下学期</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row col-1">
+        <div>
+          <label for="planCompletion">计划完成情况 <span style="font-weight:400;color:#999;">（可选）</span></label>
+          <input type="text" id="planCompletion" placeholder="例如：按计划完成所有教学任务 / 第8单元因复习考试压缩了课时">
+        </div>
+      </div>
+      <div class="form-row col-1">
+        <div>
+          <label for="examResults">考试成绩情况 <span style="font-weight:400;color:#999;">（可选）</span></label>
+          <input type="text" id="examResults" placeholder="例如：平均分72.5，及格率87%，优秀率23%">
+        </div>
+      </div>
+    </div>
+
+    <!-- 2e: 字数控制 -->
+    <div class="form-row" style="margin-top:8px;">
+      <div>
+        <label for="wordCount">目标字数</label>
+        <select id="wordCount">
+          <option value="0">自动（推荐）</option>
+          <option value="800">约 800 字（精简）</option>
+          <option value="1500">约 1500 字（标准）</option>
+          <option value="2500">约 2500 字（详细）</option>
+          <option value="4000">约 4000 字（超详细）</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 2f: 生成按钮 -->
+    <button class="btn-primary btn-full" id="generateBtn" onclick="generate()" disabled>
+      请先确认学校要求
+    </button>
+    <div class="spinner" id="spinner">AI 正在生成文档…</div>
+  </div>
+
+  <!-- SECTION 3: 电子文档编辑 -->
+  <div class="section hidden" id="section3">
+    <div class="section-title"><span class="section-number">3</span> 电子文档（可编辑）</div>
+
+    <div id="editorWrapper">
+      <div class="editor-toolbar">
+        <button onclick="execCmd('bold')" title="加粗">B</button>
+        <button onclick="execCmd('italic')" title="斜体">I</button>
+        <button onclick="execCmd('underline')" title="下划线">U</button>
+        <span class="sep"></span>
+        <button onclick="execCmd('formatBlock','h2')" title="标题2">H2</button>
+        <button onclick="execCmd('formatBlock','h3')" title="标题3">H3</button>
+        <span class="sep"></span>
+        <button onclick="execCmd('insertUnorderedList')" title="无序列表">•</button>
+        <button onclick="execCmd('insertOrderedList')" title="有序列表">1.</button>
+      </div>
+      <div id="editor" contenteditable="true"></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="btn-outline btn-sm" onclick="copyResult()">复制内容</button>
+        <button class="btn-outline btn-sm" onclick="printResult()">打印</button>
+      </div>
+
+      <div class="form-row col-1" style="margin-top:12px;">
+        <label for="revisionNote">修改建议（可选）</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="revisionNote" placeholder="如：教学过程加一个小组讨论环节，教学反思写得更深刻些…"
+                 style="flex:1;">
+          <button class="btn-outline btn-sm" id="reviseBtn" onclick="reviseContent()"
+                  style="width:auto;white-space:nowrap;">
+            根据建议修改
+          </button>
+        </div>
+      </div>
+      <div class="spinner" id="reviseSpinner">AI 正在根据建议修改…</div>
+    </div>
+  </div>
+
+  <!-- SECTION 4: 手写版PDF -->
+  <div class="section hidden" id="section4">
+    <div class="section-title"><span class="section-number">4</span> 手写版PDF</div>
+
+    <div class="form-row col-1" style="margin-bottom:12px;">
+      <div>
+        <label for="paperTemplate">纸张样式</label>
+        <select id="paperTemplate" onchange="onTemplateChange()">
+          <option value="blank_a4">纯白 A4 纸</option>
+          <option value="standard_a">通用教案表格式</option>
+          <option value="standard_b">简约式</option>
+        </select>
+      </div>
+    </div>
+
+    <label>手写字体风格</label>
+    <div class="font-cards" id="fontCards"></div>
+
+    <div class="form-row" style="margin-top:8px;">
+      <div>
+        <label for="scribbleSlider">
+          涂改痕迹：<span id="scribbleVal">0%</span>
+        </label>
+        <input type="range" id="scribbleSlider" min="0" max="10" value="0" step="1"
+               oninput="document.getElementById('scribbleVal').textContent = this.value * 10 + '%'">
+      </div>
+    </div>
+
+    <button class="btn-primary btn-full" id="downloadBtn" onclick="downloadWithFont()">
+      下载手写版PDF
+    </button>
+
+    <details style="margin-top:14px;">
+      <summary style="font-size:13px;color:#888;cursor:pointer;">自定义笔迹（高级，上传手写照片训练）</summary>
+      <div style="margin-top:10px;">
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+          <p>点击或拖拽上传 3-10 张教案照片</p>
+          <p style="font-size:12px;color:#bbb;">支持 JPG/PNG/WebP</p>
+          <input type="file" id="fileInput" accept="image/*" multiple onchange="handleFileSelect(event)">
+        </div>
+        <div class="upload-previews" id="uploadPreviews"></div>
+        <button class="btn-outline btn-full" id="uploadBtn" style="display:none;margin-top:8px;" onclick="uploadPhotos()">
+          上传并开始训练
+        </button>
+        <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <div id="trainStatus" style="font-size:14px;color:#888;margin-top:8px;"></div>
+        <button class="btn-primary btn-full hidden" id="renderTrainedBtn" onclick="downloadTrained()">
+          下载笔迹版PDF
+        </button>
+      </div>
+    </details>
+
+    <div class="spinner" id="hwSpinner">正在渲染手写版PDF…</div>
+
+    <div id="pdfPreview" class="hidden" style="margin-top:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:600;">PDF 预览</span>
+        <button class="btn-outline btn-sm" id="previewDownloadBtn" onclick="downloadPDF()">下载此PDF</button>
+      </div>
+      <iframe id="pdfFrame"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== STATE =====
+let provData = [];
+let generatedContent = '';
+let currentBusiness = 'lesson_plan';
+let confirmedRequirements = {};
+let requirementsConfirmed = false;
+let sessionId = null;
+let trainReady = false;
+
+// ===== LOCATION HELPERS =====
+function toggleManual(field) {
+  const sel = document.getElementById(field);
+  const manual = document.getElementById(field + 'Manual');
+  const link = sel.parentElement.querySelector('a');
+  if (manual.style.display === 'none' || !manual.style.display) {
+    manual.style.display = 'block';
+    sel.style.display = 'none';
+    link.textContent = '切换为下拉选择';
+  } else {
+    manual.style.display = 'none';
+    sel.style.display = 'block';
+    link.textContent = '找不到？手动输入';
+  }
+}
+
+function getLocationValue(field) {
+  const manual = document.getElementById(field + 'Manual');
+  if (manual.style.display !== 'none' && manual.style.display !== '' && manual.value.trim()) {
+    return manual.value.trim();
+  }
+  const sel = document.getElementById(field);
+  return sel.options[sel.selectedIndex]?.text || '';
+}
+
+async function loadProvinces() {
+  try {
+    const r = await fetch('/api/locations');
+    provData = await r.json();
+    const sel = document.getElementById('province');
+    sel.innerHTML = '<option value="">请选择省份</option>';
+    provData.forEach(p => {
+      sel.innerHTML += `<option value="${p.code}">${p.name}</option>`;
+    });
+  } catch(e) {
+    document.getElementById('province').innerHTML = '<option value="">加载失败</option>';
+  }
+}
+
+document.getElementById('province').addEventListener('change', async function() {
+  const citySel = document.getElementById('city');
+  const distSel = document.getElementById('district');
+  if (!this.value) {
+    citySel.innerHTML = '<option value="">请先选择省份</option>';
+    citySel.disabled = true;
+    distSel.innerHTML = '<option value="">请先选择市</option>';
+    distSel.disabled = true;
+    return;
+  }
+  try {
+    const r = await fetch('/api/locations?parent=' + encodeURIComponent(this.value));
+    const cities = await r.json();
+    citySel.innerHTML = '<option value="">请选择市/区</option>';
+    cities.forEach(c => {
+      citySel.innerHTML += `<option value="${c.code}">${c.name}</option>`;
+    });
+    citySel.disabled = false;
+    distSel.innerHTML = '<option value="">请先选择市</option>';
+    distSel.disabled = true;
+  } catch(e) {
+    citySel.innerHTML = '<option value="">加载失败</option>';
+  }
+});
+
+document.getElementById('city').addEventListener('change', async function() {
+  const distSel = document.getElementById('district');
+  const provCode = document.getElementById('province').value;
+  if (!this.value) {
+    distSel.innerHTML = '<option value="">请先选择市</option>';
+    distSel.disabled = true;
+    return;
+  }
+  try {
+    const r = await fetch(`/api/locations?parent=${encodeURIComponent(provCode)},${encodeURIComponent(this.value)}`);
+    const districts = await r.json();
+    distSel.innerHTML = '<option value="">请选择县/镇（可选）</option>';
+    districts.forEach(d => {
+      distSel.innerHTML += `<option value="${d.code}">${d.name}</option>`;
+    });
+    distSel.disabled = false;
+  } catch(e) {
+    distSel.innerHTML = '<option value="">加载失败</option>';
+  }
+});
+
+// ===== API STATUS =====
+async function checkAPI() {
+  try {
+    const r = await fetch('/api/config');
+    const cfg = await r.json();
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    if (cfg.api_ok) {
+      dot.className = 'status-dot on';
+      text.textContent = 'API 已连接 (' + cfg.model + ')';
+    } else {
+      dot.className = 'status-dot off';
+      text.textContent = 'API 未配置';
+    }
+    loadFonts();
+  } catch(e) {
+    document.getElementById('statusText').textContent = '后端未启动';
+  }
+}
+
+// ===== BUSINESS SWITCHING =====
+function onSchoolNameChange() {
+  // When school name changes, invalidate all confirmed requirements
+  confirmedRequirements = {};
+  requirementsConfirmed = false;
+  updateRequirementsUI();
+  updateGenerateButton();
+}
+
+async function switchBusiness(type) {
+  currentBusiness = type;
+
+  // Update card selection
+  document.querySelectorAll('.business-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.type === type);
+  });
+
+  // Toggle extra fields
+  document.getElementById('extraFieldsLessonPlan').classList.toggle('hidden', type !== 'lesson_plan');
+  document.getElementById('extraFieldsTeachingPlan').classList.toggle('hidden', type !== 'teaching_plan');
+  document.getElementById('extraFieldsTeachingSummary').classList.toggle('hidden', type !== 'teaching_summary');
+
+  // Check if already confirmed for this type
+  if (confirmedRequirements[type]) {
+    document.getElementById('requirementsText').value = confirmedRequirements[type];
+    requirementsConfirmed = true;
+    updateRequirementsUI();
+    updateGenerateButton();
+    return;
+  }
+
+  // Reset — user must manually query or type requirements
+  document.getElementById('requirementsText').value = '';
+  requirementsConfirmed = false;
+  document.getElementById('reqStatus').textContent = '';
+  document.getElementById('reqConfirmBtn').classList.add('hidden');
+  document.getElementById('reqQueryBtn').classList.remove('hidden');
+  updateGenerateButton();
+}
+
+async function queryRequirements(type) {
+  const schoolName = document.getElementById('schoolName').value.trim();
+  if (!schoolName) {
+    document.getElementById('requirementsText').value = '';
+    document.getElementById('reqStatus').textContent = '请先在 Section 1 填写学校名称';
+    document.getElementById('reqConfirmBtn').classList.add('hidden');
+    return;
+  }
+
+  const statusEl = document.getElementById('reqStatus');
+  const queryBtn = document.getElementById('reqQueryBtn');
+  statusEl.textContent = '正在查询"' + schoolName + '"的"' + getBusinessName(type) + '"要求…';
+  queryBtn.disabled = true;
+  document.getElementById('reqConfirmBtn').classList.add('hidden');
+
+  try {
+    const r = await fetch('/api/requirements/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        province: getLocationValue('province'),
+        city: getLocationValue('city'),
+        district: getLocationValue('district'),
+        school_name: schoolName,
+        business_type: type
+      })
+    });
+
+    const data = await r.json();
+    if (!data.success) throw new Error(data.detail || '查询失败');
+
+    document.getElementById('requirementsText').value = data.requirements;
+    statusEl.textContent = '请审阅并确认以上要求（可修改后确认）';
+    document.getElementById('reqConfirmBtn').classList.remove('hidden');
+  } catch(e) {
+    statusEl.textContent = '查询失败：' + e.message;
+  } finally {
+    queryBtn.disabled = false;
+  }
+}
+
+function confirmRequirements() {
+  const text = document.getElementById('requirementsText').value.trim();
+  if (!text) return;
+
+  confirmedRequirements[currentBusiness] = text;
+  requirementsConfirmed = true;
+  document.getElementById('reqStatus').textContent = '已确认要求';
+  document.getElementById('reqConfirmBtn').classList.add('hidden');
+  updateGenerateButton();
+}
+
+function updateRequirementsUI() {
+  const hasReq = confirmedRequirements[currentBusiness];
+  if (hasReq && requirementsConfirmed) {
+    document.getElementById('reqStatus').textContent = '已确认要求';
+    document.getElementById('reqConfirmBtn').classList.add('hidden');
+  }
+}
+
+function updateGenerateButton() {
+  const btn = document.getElementById('generateBtn');
+  const schoolName = document.getElementById('schoolName').value.trim();
+  if (!schoolName) {
+    btn.disabled = true;
+    btn.textContent = '请先填写学校名称';
+    return;
+  }
+  if (!requirementsConfirmed) {
+    btn.disabled = true;
+    btn.textContent = '请先确认学校要求';
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = '生成' + getBusinessName(currentBusiness);
+}
+
+function getBusinessName(type) {
+  const names = { lesson_plan: '教案', teaching_plan: '教学计划', teaching_summary: '教学总结' };
+  return names[type] || type;
+}
+
+// ===== GENERATE =====
+async function generate() {
+  if (!requirementsConfirmed) return showError('请先确认学校要求');
+
+  const schoolName = document.getElementById('schoolName').value.trim();
+  if (!schoolName) return showError('请填写学校名称');
+
+  const btn = document.getElementById('generateBtn');
+  const spinner = document.getElementById('spinner');
+
+  btn.disabled = true;
+  spinner.className = 'spinner show';
+  spinner.textContent = 'AI 正在生成' + getBusinessName(currentBusiness) + '…（通常需要30-60秒）';
+  hideError();
+
+  const body = {
+    school: {
+      province: getLocationValue('province'),
+      city: getLocationValue('city'),
+      district: getLocationValue('district'),
+      school_name: schoolName
+    },
+    teaching: {
+      subject: document.getElementById('subject').value,
+      grade: document.getElementById('grade').value,
+      textbook: document.getElementById('textbook').value,
+      hours: parseInt(document.getElementById('hours').value)
+    },
+    business_type: currentBusiness,
+    requirements: confirmedRequirements[currentBusiness] || '',
+    word_count: parseInt(document.getElementById('wordCount').value) || 0
+  };
+
+  if (currentBusiness === 'teaching_plan') {
+    body.semester = document.getElementById('semesterPlan').value;
+    body.weeks = parseInt(document.getElementById('weeksPlan').value);
+    body.class_situation = document.getElementById('classSituation').value.trim();
+  } else if (currentBusiness === 'teaching_summary') {
+    body.semester = document.getElementById('semesterSummary').value;
+    body.plan_completion = document.getElementById('planCompletion').value.trim();
+    body.exam_results = document.getElementById('examResults').value.trim();
+  } else {
+    body.topic = document.getElementById('topic').value.trim();
+    if (!body.topic) {
+      btn.disabled = false;
+      spinner.className = 'spinner';
+      return showError('请输入课题名称');
+    }
+  }
+
+  const startTime = Date.now();
+  try {
+    const r = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await r.json();
+    if (!data.success) throw new Error(data.detail || '生成失败');
+
+    generatedContent = data.content;
+    renderToEditor(data.content);
+    document.getElementById('section3').classList.remove('hidden');
+    document.getElementById('section4').classList.remove('hidden');
+    document.getElementById('editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    spinner.textContent = '生成完成（耗时' + elapsed + '秒，共' + data.content.length + '字）';
+    setTimeout(() => { spinner.className = 'spinner'; }, 2500);
+  } catch(e) {
+    showError('生成失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    spinner.className = 'spinner';
+  }
+}
+
+function renderToEditor(markdown) {
+  const editor = document.getElementById('editor');
+  let html = markdown
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const lines = html.split('\n');
+  let out = '';
+  let inList = false;
+  let inTable = false;
+
+  for (let line of lines) {
+    // Table support
+    if (line.startsWith('|') && !inTable) { out += '<table style="border-collapse:collapse;width:100%;">'; inTable = true; }
+    if (inTable && !line.startsWith('|')) { out += '</table>'; inTable = false; }
+    if (inTable && line.startsWith('|')) {
+      if (line.includes('---')) continue; // Skip separator row
+      const cells = line.split('|').filter(c => c.trim());
+      out += '<tr>' + cells.map(c => '<td style="border:1px solid #ddd;padding:4px 8px;">' + c.trim() + '</td>').join('') + '</tr>';
+      continue;
+    }
+
+    if (/^## (.+)$/.test(line)) {
+      if (inList) { out += '</ul>'; inList = false; }
+      out += '<h2>' + line.replace(/^## /, '') + '</h2>';
+    } else if (/^### (.+)$/.test(line)) {
+      if (inList) { out += '</ul>'; inList = false; }
+      out += '<h3>' + line.replace(/^### /, '') + '</h3>';
+    } else if (/^\- (.+)$/.test(line)) {
+      if (!inList) { out += '<ul>'; inList = true; }
+      out += '<li>' + line.replace(/^- /, '') + '</li>';
+    } else if (/^\d+\.\s(.+)$/.test(line)) {
+      if (inList) { out += '</ul>'; inList = false; }
+      out += '<p>' + line + '</p>';
+    } else if (line.trim() === '') {
+      if (inList) { out += '</ul>'; inList = false; }
+      out += '<br>';
+    } else {
+      if (inList) { out += '</ul>'; inList = false; }
+      out += '<p>' + line + '</p>';
+    }
+  }
+  if (inList) out += '</ul>';
+  if (inTable) out += '</table>';
+
+  editor.innerHTML = out;
+}
+
+function execCmd(cmd, arg) {
+  document.execCommand(cmd, false, arg || null);
+  document.getElementById('editor').focus();
+}
+
+function copyResult() {
+  const text = document.getElementById('editor').innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    showError('已复制到剪贴板');
+    const toast = document.getElementById('errorToast');
+    toast.style.background = '#f0fff0';
+    toast.style.borderColor = '#cfc';
+    toast.style.color = '#3a3';
+    setTimeout(() => {
+      toast.style.background = '#fff0f0';
+      toast.style.borderColor = '#fcc';
+      toast.style.color = '#c33';
+      hideError();
+    }, 1500);
+  }).catch(() => showError('复制失败'));
+}
+
+function printResult() {
+  const content = document.getElementById('editor').innerHTML;
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <html><head><meta charset="UTF-8"><title>${getBusinessName(currentBusiness)}</title>
+    <style>
+      body { font-family: "PingFang SC","Microsoft YaHei",sans-serif; line-height:1.8; padding:40px; max-width:700px; margin:0 auto; }
+      h2 { font-size:18px; margin:20px 0 8px; } h3 { font-size:16px; margin:16px 0 6px; }
+      table { border-collapse:collapse; width:100%; }
+      td, th { border:1px solid #ddd; padding:4px 8px; }
+    </style></head><body>${content}</body></html>
+  `);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
+}
+
+// ===== HANDWRITING PDF =====
+let selectedFont = null;
+let selectedTemplate = 'blank_a4';
+
+function onTemplateChange() {
+  selectedTemplate = document.getElementById('paperTemplate').value;
+}
+
+async function loadFonts() {
+  try {
+    const r = await fetch('/api/config');
+    const cfg = await r.json();
+    const container = document.getElementById('fontCards');
+    container.innerHTML = '';
+
+    cfg.fonts.forEach((f, i) => {
+      const card = document.createElement('div');
+      card.className = 'font-card';
+      card.innerHTML = `
+        <img class="font-preview-img" src="${f.preview_url}" alt="${f.display}" loading="lazy">
+        <div class="font-name">${f.display}</div>
+      `;
+      card.onclick = () => {
+        document.querySelectorAll('.font-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedFont = f.name;
+      };
+      container.appendChild(card);
+
+      if (i === 0) {
+        card.classList.add('selected');
+        selectedFont = f.name;
+      }
+    });
+  } catch(e) {}
+}
+
+function getRenderContent() {
+  if (selectedTemplate !== 'blank_a4' && generatedContent) {
+    return generatedContent;
+  }
+  return document.getElementById('editor').innerText.trim();
+}
+
+async function downloadWithFont() {
+  const content = getRenderContent();
+  if (!content) return showError('请先生成文档内容');
+  await renderAndDownload(content, null, true, selectedFont);
+}
+
+async function downloadTrained() {
+  const content = getRenderContent();
+  if (!content) return showError('请先生成文档内容');
+  if (!trainReady) return showError('笔迹训练尚未完成');
+  await renderAndDownload(content, sessionId, false, null);
+}
+
+async function renderAndDownload(content, sid, useDefault, fontName) {
+  const btn = document.getElementById('downloadBtn');
+  const spinner = document.getElementById('hwSpinner');
+  const charCount = content.length;
+  const estSec = Math.max(3, Math.round(charCount / 200));
+  spinner.textContent = '正在渲染手写版PDF…（约' + estSec + '秒，共' + charCount + '字）';
+  btn.disabled = true;
+  spinner.className = 'spinner show';
+  hideError();
+
+  const startTime = Date.now();
+  try {
+    const r = await fetch('/api/handwriting/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: content,
+        session_id: sid,
+        use_default: useDefault,
+        font_name: fontName || null,
+        scribble_prob: parseInt(document.getElementById('scribbleSlider').value) / 10,
+        template_id: selectedTemplate
+      })
+    });
+
+    if (!r.ok) {
+      const data = await r.json();
+      throw new Error(data.detail || '渲染失败');
+    }
+
+    const blob = await r.blob();
+    const token = r.headers.get('X-Download-Token');
+    if (token) window._downloadToken = token;
+    window._pdfBlob = blob;
+
+    const url = URL.createObjectURL(blob);
+    const pdfFrame = document.getElementById('pdfFrame');
+    pdfFrame.src = url;
+    document.getElementById('pdfPreview').classList.remove('hidden');
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    spinner.textContent = '渲染完成（耗时' + elapsed + '秒）';
+    setTimeout(() => { spinner.className = 'spinner'; }, 2000);
+  } catch(e) {
+    showError('PDF渲染失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    spinner.className = 'spinner';
+  }
+}
+
+function downloadPDF() {
+  if (!window._downloadToken) return;
+  const prefix = getBusinessName(currentBusiness);
+  const ts = new Date().toISOString().slice(0,16).replace('T','-').replace(':','');
+  const filename = prefix + '-手写版-' + ts + '.pdf';
+  const a = document.createElement('a');
+  a.href = '/api/handwriting/download/' + window._downloadToken + '/' + encodeURIComponent(filename);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ===== HANDWRITING TRAINING =====
+let selectedFiles = [];
+
+function handleFileSelect(event) {
+  selectedFiles = Array.from(event.target.files).slice(0, 10);
+  if (selectedFiles.length < 3) {
+    showError('请至少选择3张照片');
+    return;
+  }
+  const zone = document.getElementById('uploadZone');
+  const previews = document.getElementById('uploadPreviews');
+  const btn = document.getElementById('uploadBtn');
+
+  previews.innerHTML = '';
+  selectedFiles.forEach(f => {
+    const url = URL.createObjectURL(f);
+    previews.innerHTML += '<img src="' + url + '" alt="' + f.name + '">';
+  });
+  zone.querySelector('p').textContent = '已选择 ' + selectedFiles.length + ' 张照片';
+  btn.style.display = 'block';
+}
+
+async function uploadPhotos() {
+  if (selectedFiles.length < 3) return showError('请至少上传3张照片');
+
+  const btn = document.getElementById('uploadBtn');
+  const bar = document.getElementById('progressBar');
+  const fill = document.getElementById('progressFill');
+  const status = document.getElementById('trainStatus');
+
+  btn.disabled = true;
+  bar.classList.add('show');
+  fill.style.width = '30%';
+  status.textContent = '正在上传…';
+  hideError();
+
+  try {
+    const form = new FormData();
+    selectedFiles.forEach(f => form.append('files', f));
+
+    const r = await fetch('/api/handwriting/upload', { method: 'POST', body: form });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || '上传失败');
+
+    sessionId = data.session_id;
+    fill.style.width = '50%';
+    status.textContent = '上传完成，正在训练笔迹…';
+
+    const tr = await fetch('/api/handwriting/train', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    const trData = await tr.json();
+    if (!tr.ok) throw new Error(trData.detail || '训练启动失败');
+
+    fill.style.width = '60%';
+    status.textContent = '训练中…';
+
+    await pollTrainingStatus(sessionId, fill, status);
+  } catch(e) {
+    showError('训练失败：' + e.message);
+    bar.classList.remove('show');
+    btn.disabled = false;
+  }
+}
+
+async function pollTrainingStatus(sid, fill, statusEl) {
+  const maxAttempts = 60;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const r = await fetch('/api/handwriting/status/' + sid);
+      const data = await r.json();
+      const pct = 60 + Math.min(35, (i / maxAttempts) * 35);
+      fill.style.width = pct + '%';
+
+      if (data.status === 'ready') {
+        fill.style.width = '100%';
+        statusEl.innerHTML = '字库就绪！已提取 <b>' + data.char_count + '</b> 个不同汉字 (共 ' + data.total_samples + ' 个字模)';
+        trainReady = true;
+        document.getElementById('renderTrainedBtn').classList.remove('hidden');
+        document.getElementById('uploadBtn').style.display = 'none';
+        return;
+      } else if (data.status === 'error') {
+        throw new Error('训练过程出错');
+      } else {
+        statusEl.textContent = '训练中… (' + data.status + ')';
+      }
+    } catch(e) {
+      statusEl.textContent = '轮询状态失败，请手动刷新';
+      return;
+    }
+  }
+  statusEl.textContent = '训练超时，请检查照片质量后重试';
+  fill.style.width = '100%';
+}
+
+const uploadZone = document.getElementById('uploadZone');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) {
+    selectedFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')).slice(0, 10);
+    handleFileSelect({ target: { files: selectedFiles } });
+  }
+});
+
+// ===== HELPERS =====
+// ===== REVISE =====
+async function reviseContent() {
+  const note = document.getElementById('revisionNote').value.trim();
+  if (!note) return showError('请输入修改建议');
+
+  const currentContent = document.getElementById('editor').innerText;
+  const btn = document.getElementById('reviseBtn');
+  const spinner = document.getElementById('reviseSpinner');
+
+  btn.disabled = true;
+  spinner.className = 'spinner show';
+  hideError();
+
+  try {
+    const r = await fetch('/api/revise', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        original_content: currentContent,
+        revision_note: note,
+        business_type: currentBusiness,
+        requirements: confirmedRequirements[currentBusiness] || ''
+      })
+    });
+    const data = await r.json();
+    if (!data.success) throw new Error(data.detail || '修改失败');
+
+    generatedContent = data.content;
+    renderToEditor(data.content);
+    document.getElementById('revisionNote').value = '';
+  } catch(e) {
+    showError('修改失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    spinner.className = 'spinner';
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorToast');
+  el.textContent = msg;
+  el.className = 'error-toast show';
+}
+function hideError() {
+  document.getElementById('errorToast').className = 'error-toast';
+}
+
+// ===== INIT =====
+loadProvinces();
+checkAPI();
+</script>
+</body>
+</html>

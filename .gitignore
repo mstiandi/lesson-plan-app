@@ -1,0 +1,5 @@
+uploads/
+handwriting_banks/
+__pycache__/
+*.pyc
+.env
