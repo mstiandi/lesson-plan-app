@@ -300,44 +300,53 @@ async def analyze_template_photo(file: UploadFile = File(...)):
         from services.template_analyzer import TemplateAnalyzer
         analyzer = TemplateAnalyzer(str(temp_path))
         result = analyzer.analyze()
-        return {"success": True, "analysis": result, "warnings": result.get("warnings", [])}
+
+        # Extract photo bytes for the client to store temporarily
+        response = {"success": True, "analysis": {k: v for k, v in result.items()
+                     if not k.startswith("_")},
+                    "warnings": result.get("warnings", [])}
+
+        # Store photo bytes in temp file for save step
+        if result.get("_photo_bytes"):
+            photo_path = TEMPLATE_PHOTOS_DIR / f"photo_{int(time.time())}.jpg"
+            photo_path.write_bytes(result["_photo_bytes"])
+            response["photo_temp_id"] = photo_path.name
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"分析失败: {e}")
 
 
+@router.get("/templates/photo/{photo_name}")
+async def serve_temp_photo(photo_name: str):
+    """Serve a temporary template photo (preview during analysis)."""
+    from config import TEMPLATE_PHOTOS_DIR
+    path = TEMPLATE_PHOTOS_DIR / photo_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="照片不存在")
+    return Response(content=path.read_bytes(), media_type="image/jpeg")
+
+
 @router.post("/templates/save")
 async def save_template(req: TemplateSaveRequest):
-    """Save a custom template config. Returns the new template_id."""
+    """Save a custom template config + background photo. Returns template_id."""
     config = req.config
 
-    # Validate required fields
-    if not config.get("page"):
-        raise HTTPException(status_code=400, detail="缺少 page 配置")
-    if not config.get("margins"):
-        raise HTTPException(status_code=400, detail="缺少 margins 配置")
-
-    # Validate numeric ranges
-    margins = config.get("margins", {})
-    for key in ("top_mm", "bottom_mm", "left_mm", "right_mm"):
-        val = margins.get(key)
-        if val is not None and not (3 <= val <= 100):
-            raise HTTPException(status_code=422, detail=f"边距 {key} 超出范围(3-100mm): {val}")
-
-    rulings = config.get("ruling", {})
-    spacing = rulings.get("line_spacing_mm")
-    if spacing is not None and not (2 <= spacing <= 30):
-        raise HTTPException(status_code=422, detail=f"行距超出范围(2-30mm): {spacing}")
-
-    divider = config.get("vertical_divider", {})
-    if divider.get("exists") and divider.get("x_mm"):
-        x = divider["x_mm"]
-        if not (50 <= x <= 200):
-            raise HTTPException(status_code=422, detail=f"竖线位置超出范围(50-200mm): {x}")
-
     from services.template_store import save_template
-    tid = save_template(config)
+
+    # Load photo bytes from temp file if provided
+    photo_bytes = None
+    photo_temp_id = config.pop("_photo_temp_id", None)
+    if photo_temp_id:
+        photo_path = TEMPLATE_PHOTOS_DIR / photo_temp_id
+        if photo_path.exists():
+            photo_bytes = photo_path.read_bytes()
+            try: photo_path.unlink()
+            except Exception: pass
+
+    tid = save_template(config, photo_bytes)
     return {"success": True, "template_id": tid}
 
 
@@ -366,7 +375,6 @@ async def preview_template(template_id: str):
     if bg is None:
         raise HTTPException(status_code=404, detail="模板不存在")
 
-    # Scale to preview width
     ratio = TEMPLATE_PREVIEW_WIDTH / bg.width
     new_h = int(bg.height * ratio)
     preview = bg.resize((TEMPLATE_PREVIEW_WIDTH, new_h), Image.LANCZOS)

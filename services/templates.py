@@ -218,11 +218,10 @@ def get_template_background(template_id: str) -> Image.Image | None:
         _bg_cache[template_id] = bg
         return bg.copy()
 
-    # Try custom template
-    from services.template_store import get_template_config, generate_background_image
-    custom_config = get_template_config(template_id)
-    if custom_config:
-        bg = generate_background_image(custom_config)
+    # Try custom template — load saved photo as background
+    from services.template_store import get_template_background_image
+    bg = get_template_background_image(template_id)
+    if bg is not None:
         _bg_cache[template_id] = bg
         return bg.copy()
 
