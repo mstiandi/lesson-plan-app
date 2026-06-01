@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import Response
 from urllib.parse import quote
-from models import GenerateRequest, RenderRequest, TrainRequest, RequirementsQuery, ReviseRequest
+from models import GenerateRequest, RenderRequest, TrainRequest, RequirementsQuery, ReviseRequest, TemplateSaveRequest
 from services.ai import (
     build_system_prompt, build_user_content, call_ai,
     REVISE_PROMPT, BUSINESS_TYPE_NAMES,
@@ -275,6 +275,105 @@ async def get_locations(parent: str = ""):
 async def list_templates():
     from services.templates import list_templates as lt
     return lt()
+
+
+@router.post("/templates/analyze")
+async def analyze_template_photo(file: UploadFile = File(...)):
+    """Analyze a template photo with OpenCV + GLM-4V hybrid engine."""
+    # Validate file
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ('.png', '.jpg', '.jpeg', '.webp', '.bmp'):
+        raise HTTPException(status_code=400, detail="仅支持图片格式 (PNG/JPG/WebP/BMP)")
+
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片不能超过20MB")
+
+    # Save temp photo
+    from config import TEMPLATE_PHOTOS_DIR
+    TEMPLATE_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+    import time
+    temp_path = TEMPLATE_PHOTOS_DIR / f"temp_{int(time.time())}{ext}"
+    temp_path.write_bytes(content)
+
+    try:
+        from services.template_analyzer import TemplateAnalyzer
+        analyzer = TemplateAnalyzer(str(temp_path))
+        result = analyzer.analyze()
+        return {"success": True, "analysis": result, "warnings": result.get("warnings", [])}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析失败: {e}")
+
+
+@router.post("/templates/save")
+async def save_template(req: TemplateSaveRequest):
+    """Save a custom template config. Returns the new template_id."""
+    config = req.config
+
+    # Validate required fields
+    if not config.get("page"):
+        raise HTTPException(status_code=400, detail="缺少 page 配置")
+    if not config.get("margins"):
+        raise HTTPException(status_code=400, detail="缺少 margins 配置")
+
+    # Validate numeric ranges
+    margins = config.get("margins", {})
+    for key in ("top_mm", "bottom_mm", "left_mm", "right_mm"):
+        val = margins.get(key)
+        if val is not None and not (3 <= val <= 100):
+            raise HTTPException(status_code=422, detail=f"边距 {key} 超出范围(3-100mm): {val}")
+
+    rulings = config.get("ruling", {})
+    spacing = rulings.get("line_spacing_mm")
+    if spacing is not None and not (2 <= spacing <= 30):
+        raise HTTPException(status_code=422, detail=f"行距超出范围(2-30mm): {spacing}")
+
+    divider = config.get("vertical_divider", {})
+    if divider.get("exists") and divider.get("x_mm"):
+        x = divider["x_mm"]
+        if not (50 <= x <= 200):
+            raise HTTPException(status_code=422, detail=f"竖线位置超出范围(50-200mm): {x}")
+
+    from services.template_store import save_template
+    tid = save_template(config)
+    return {"success": True, "template_id": tid}
+
+
+@router.delete("/templates/{template_id}")
+async def delete_template(template_id: str):
+    """Delete a custom template. Builtin templates cannot be deleted."""
+    BUILTINS = {"blank_a4", "standard_a", "standard_b"}
+    if template_id in BUILTINS:
+        raise HTTPException(status_code=400, detail="内置模板不能删除")
+
+    from services.template_store import delete_template
+    ok = delete_template(template_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    return {"success": True}
+
+
+@router.get("/templates/{template_id}/preview")
+async def preview_template(template_id: str):
+    """Return a low-res JPEG preview (600px wide) of a template background."""
+    from services.templates import get_template_background
+    from config import TEMPLATE_PREVIEW_WIDTH
+    import io
+
+    bg = get_template_background(template_id)
+    if bg is None:
+        raise HTTPException(status_code=404, detail="模板不存在")
+
+    # Scale to preview width
+    ratio = TEMPLATE_PREVIEW_WIDTH / bg.width
+    new_h = int(bg.height * ratio)
+    preview = bg.resize((TEMPLATE_PREVIEW_WIDTH, new_h), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    preview.save(buf, format="JPEG", quality=80)
+    return Response(content=buf.getvalue(), media_type="image/jpeg")
 
 
 @router.get("/font-preview/{font_name}")

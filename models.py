@@ -86,5 +86,9 @@ class TrainStatusResponse(BaseModel):
     photo_count: int
 
 
+class TemplateSaveRequest(BaseModel):
+    config: dict
+
+
 class ErrorResponse(BaseModel):
     detail: str

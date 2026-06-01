@@ -521,14 +521,54 @@
         <label for="paperTemplate">纸张样式</label>
         <select id="paperTemplate" onchange="onTemplateChange()">
           <option value="blank_a4">纯白 A4 纸</option>
-          <option value="standard_a">通用教案表格式</option>
-          <option value="standard_b">简约式</option>
         </select>
       </div>
     </div>
 
     <label>手写字体风格</label>
     <div class="font-cards" id="fontCards"></div>
+
+    <!-- 模板管理 -->
+    <details style="margin-top:14px;" id="templateMgmt">
+      <summary style="font-size:13px;color:#888;cursor:pointer;">模板管理（上传教案本照片，自动生成横线纸）</summary>
+      <div style="margin-top:10px;">
+        <!-- Upload -->
+        <div class="upload-zone" id="tmplUploadZone" onclick="document.getElementById('tmplFileInput').click()">
+          <p>点击上传教案本照片（含尺子效果最佳）</p>
+          <p style="font-size:12px;color:#bbb;">支持 JPG/PNG/WebP，小于20MB</p>
+          <input type="file" id="tmplFileInput" accept="image/*" onchange="handleTemplateFile(event)">
+        </div>
+
+        <!-- Analysis spinner -->
+        <div class="spinner" id="tmplSpinner">正在分析模板照片…</div>
+
+        <!-- Analysis result -->
+        <div id="tmplResult" class="hidden" style="margin-top:12px;">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <div style="flex:0 0 auto;max-width:200px;">
+              <img id="tmplThumb" src="" alt="模板照片"
+                   style="width:100%;border-radius:6px;border:1px solid #ddd;">
+            </div>
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:13px;font-weight:600;margin-bottom:6px;">分析结果（可微调）</div>
+              <table id="tmplParams" style="width:100%;font-size:12px;border-collapse:collapse;">
+              </table>
+              <div style="margin-top:8px;">
+                <label style="font-size:12px;">模板名称</label>
+                <input type="text" id="tmplName" placeholder="如：我的教案本" style="width:100%;">
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn-primary btn-sm" onclick="saveTemplate()">保存模板</button>
+                <button class="btn-outline btn-sm" onclick="cancelTemplate()">取消</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Saved templates list -->
+        <div id="tmplList" style="margin-top:12px;"></div>
+      </div>
+    </details>
 
     <div class="form-row" style="margin-top:8px;">
       <div>
@@ -1272,14 +1312,194 @@ function showError(msg) {
   const el = document.getElementById('errorToast');
   el.textContent = msg;
   el.className = 'error-toast show';
+  el.style.background = '#fff0f0';
+  el.style.borderColor = '#fcc';
+  el.style.color = '#c33';
+}
+function showSuccess(msg) {
+  const el = document.getElementById('errorToast');
+  el.textContent = msg;
+  el.className = 'error-toast show';
+  el.style.background = '#f0fff0';
+  el.style.borderColor = '#cfc';
+  el.style.color = '#3a3';
+  setTimeout(() => {
+    el.style.background = '#fff0f0';
+    el.style.borderColor = '#fcc';
+    el.style.color = '#c33';
+    hideError();
+  }, 2000);
 }
 function hideError() {
   document.getElementById('errorToast').className = 'error-toast';
 }
 
+// ===== TEMPLATE MANAGEMENT =====
+let tmplAnalysis = null;  // Current analysis result
+
+async function loadTemplates() {
+  try {
+    const r = await fetch('/api/templates');
+    const templates = await r.json();
+    // Fill dropdown
+    const sel = document.getElementById('paperTemplate');
+    sel.innerHTML = '';
+    templates.forEach(t => {
+      sel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+    });
+    // Render saved templates list
+    renderTemplateList(templates);
+  } catch(e) {}
+}
+
+function renderTemplateList(templates) {
+  const customs = templates.filter(t => t.type === 'custom');
+  const list = document.getElementById('tmplList');
+  if (customs.length === 0) {
+    list.innerHTML = '<div style="font-size:12px;color:#aaa;margin-top:8px;">暂无自定义模板</div>';
+    return;
+  }
+  list.innerHTML = '<div style="font-size:12px;font-weight:600;margin:8px 0 4px;">已保存的模板：</div>' +
+    customs.map(t => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:#f8f8f6;border-radius:4px;margin-bottom:4px;">
+        <span style="font-size:13px;">${t.name}</span>
+        <span style="display:flex;gap:8px;align-items:center;">
+          <span style="font-size:11px;color:#aaa;">${t.created_at ? t.created_at.slice(0,10) : ''}</span>
+          <button class="btn-outline btn-sm" onclick="deleteCustomTemplate('${t.id}')" style="padding:2px 8px;">删除</button>
+        </span>
+      </div>
+    `).join('');
+}
+
+async function handleTemplateFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  // Show thumbnail
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('tmplThumb').src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+
+  // Show spinner
+  const spinner = document.getElementById('tmplSpinner');
+  spinner.className = 'spinner show';
+  document.getElementById('tmplResult').classList.add('hidden');
+
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const r = await fetch('/api/templates/analyze', { method: 'POST', body: form });
+    const data = await r.json();
+    if (!data.success) throw new Error(data.detail || '分析失败');
+
+    tmplAnalysis = data.analysis;
+    renderParamsTable(tmplAnalysis);
+    document.getElementById('tmplName').value = '';
+    if (data.warnings && data.warnings.length > 0) {
+      showError('提示：' + data.warnings.join('；'));
+    }
+  } catch(e) {
+    showError('模板分析失败：' + e.message);
+  } finally {
+    spinner.className = 'spinner';
+    document.getElementById('tmplResult').classList.remove('hidden');
+  }
+}
+
+function renderParamsTable(analysis) {
+  const margins = analysis.margins || {};
+  const rulings = analysis.ruling || {};
+  const divider = analysis.vertical_divider || {};
+
+  const rows = [
+    { label: '横线数量', key: 'ruling.line_count', value: rulings.line_count || 0, step: 1 },
+    { label: '行距(mm)', key: 'ruling.line_spacing_mm', value: rulings.line_spacing_mm || 8, step: 0.5 },
+    { label: '上边距(mm)', key: 'margins.top_mm', value: margins.top_mm || 25, step: 0.5 },
+    { label: '下边距(mm)', key: 'margins.bottom_mm', value: margins.bottom_mm || 20, step: 0.5 },
+    { label: '左边距(mm)', key: 'margins.left_mm', value: margins.left_mm || 25, step: 0.5 },
+    { label: '右边距(mm)', key: 'margins.right_mm', value: margins.right_mm || 20, step: 0.5 },
+    { label: '反思栏宽度(mm)', key: 'vertical_divider.x_mm',
+      value: divider.exists ? (divider.x_mm || 170) : 0, step: 0.5 },
+  ];
+
+  document.getElementById('tmplParams').innerHTML = rows.map(r => `
+    <tr>
+      <td style="padding:3px 8px 3px 0;">${r.label}</td>
+      <td style="padding:3px 0;">
+        <input type="number" step="${r.step}" value="${r.value}"
+               data-key="${r.key}" style="width:80px;padding:4px;font-size:12px;"
+               onchange="onParamChange(this)">
+      </td>
+    </tr>
+  `).join('');
+}
+
+function onParamChange(input) {
+  // Update tmplAnalysis in-place
+  const key = input.dataset.key;
+  const val = parseFloat(input.value);
+  if (isNaN(val)) return;
+  const parts = key.split('.');
+  let obj = tmplAnalysis;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!obj[parts[i]]) obj[parts[i]] = {};
+    obj = obj[parts[i]];
+  }
+  obj[parts[parts.length - 1]] = val;
+}
+
+async function saveTemplate() {
+  if (!tmplAnalysis) return showError('没有分析结果可保存');
+  const name = document.getElementById('tmplName').value.trim() || '未命名模板';
+  tmplAnalysis.name = name;
+
+  try {
+    const r = await fetch('/api/templates/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: tmplAnalysis })
+    });
+    const data = await r.json();
+    if (!data.success) throw new Error(data.detail || '保存失败');
+
+    document.getElementById('tmplResult').classList.add('hidden');
+    tmplAnalysis = null;
+    document.getElementById('tmplFileInput').value = '';
+    await loadTemplates();
+    showSuccess('模板已保存');
+  } catch(e) {
+    showError('保存失败：' + e.message);
+  }
+}
+
+function cancelTemplate() {
+  document.getElementById('tmplResult').classList.add('hidden');
+  document.getElementById('tmplFileInput').value = '';
+  tmplAnalysis = null;
+}
+
+async function deleteCustomTemplate(id) {
+  try {
+    const r = await fetch('/api/templates/' + id, { method: 'DELETE' });
+    const data = await r.json();
+    if (!data.success) throw new Error(data.error || '删除失败');
+    // If deleted template was selected, fallback to blank_a4
+    if (selectedTemplate === id) {
+      selectedTemplate = 'blank_a4';
+      document.getElementById('paperTemplate').value = 'blank_a4';
+    }
+    await loadTemplates();
+  } catch(e) {
+    showError('删除失败：' + e.message);
+  }
+}
+
 // ===== INIT =====
 loadProvinces();
 checkAPI();
+loadTemplates();
 </script>
 </body>
 </html>

@@ -217,6 +217,15 @@ def get_template_background(template_id: str) -> Image.Image | None:
         bg = gen()
         _bg_cache[template_id] = bg
         return bg.copy()
+
+    # Try custom template
+    from services.template_store import get_template_config, generate_background_image
+    custom_config = get_template_config(template_id)
+    if custom_config:
+        bg = generate_background_image(custom_config)
+        _bg_cache[template_id] = bg
+        return bg.copy()
+
     return None
 
 
@@ -274,8 +283,11 @@ def match_sections_to_regions(
 
 
 def list_templates() -> list[dict]:
-    """Return list of all available templates for the frontend."""
-    return [
+    """Return list of all available templates for the frontend (builtins + custom)."""
+    builtins = [
         {"id": t["id"], "name": t["name"], "type": t["type"]}
         for t in TEMPLATES.values()
     ]
+    from services.template_store import list_custom_templates
+    customs = list_custom_templates()
+    return builtins + customs

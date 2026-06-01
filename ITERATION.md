@@ -504,7 +504,277 @@ _client = anthropic.Anthropic(base_url=BASE_URL, api_key=API_KEY)
 **Spec:** [SPEC-v3.7.md](SPEC-v3.7.md)
 
 ### 落地师实现
-[待实现]
+
+**完成内容：**
+- `static/index.html:962-966` — 删除「第一个展开其余折叠」4 行
+- 验证：生成后全文展开 ✓；点击 h2 标题仍可折叠/展开 ✓
+
+**偏差：** 无
+
+**状态：** 审查就绪
 
 ### 架构师审查
-[待审查]
+
+**LGTM.** 删了 4 行，完全符合 spec。折叠交互保留，默认全展开。
+
+**状态：** LGTM
+
+---
+
+## I-008 — 2026-06-01 [功能]
+
+### 架构师计划
+
+**目标：** 用 modood/Administrative-divisions-of-China 完整三级数据重建 `static/locations.json`。
+
+**问题：** 当前仅 283 地级市 / 1734 区县。安徽 16 市只收录 8 个（缺滁州、黄山、阜阳等），辽宁缺 7/14 市，云南缺 8/16 市，新疆缺 10/14 地州。
+
+**方案：**
+1. 下载 `pca.json`：`https://raw.githubusercontent.com/modood/Administrative-divisions-of-China/master/dist/pca.json`
+2. Python 脚本转换为当前格式（省→市→区县三级，附编码）
+3. 覆盖 `static/locations.json`
+
+**验什么：** 安徽 16 市全部收录（含滁州）→ 辽宁/云南/新疆完整 → 前端联动正常。
+
+**Spec:** [SPEC-v3.8.md](SPEC-v3.8.md)
+
+### 落地师实现
+
+**完成内容：**
+- 下载 modood pca.json（31 省 / 342 地级 / 3056 区县）
+- Python 脚本转换格式 + 生成 GB 编码（34 省含港澳台占位）
+- 覆盖 `static/locations.json`（149 KB，原 57 KB）
+- 验证：
+  - 安徽 16 市全收录 ✓（含滁州、黄山、阜阳、宿州、六安、亳州、池州、宣城）
+  - 辽宁 14/14、云南 16/16、新疆 15/15、青海 8/8 ✓
+  - 前端三级联动 API 正常（省→市→区县）✓
+  - 共计 342 地级、3056 区县 ✓
+
+**偏差：** 无
+
+**状态：** 审查就绪
+
+### 架构师审查
+
+**LGTM.** 数据完整。安徽 16/16、辽宁 14/14、云南 16/16、新疆 15/15、青海 8/8。前端联动正常。
+
+**状态：** LGTM
+
+---
+
+## I-009 — 2026-06-01 [大功能]
+
+### 架构师计划
+
+**目标：** 模板识别 + 自定义模板系统。用户拍教案本照片 → OpenCV + GLM-4V 混合分析 → 自动提取布局参数 → 保存模板 → PDF 带横线+反思栏+手写体。
+
+**核心设计：** OpenCV 管精确测量（尺子校准、横线间距、竖线位置、边距），GLM-4V 管语义判断（预印标签文字、线条颜色、线型）。冲突时 OpenCV 胜出。用户最终确认所有参数。
+
+**涉及文件（7个）：**
+- 新增：`services/template_analyzer.py`、`services/template_store.py`
+- 修改：`services/handwriting.py`、`services/templates.py`、`models.py`、`routes/lesson.py`、`config.py`、`static/index.html`、`requirements.txt`
+
+**Spec:** [SPEC-v3.9.md](SPEC-v3.9.md)
+
+### 落地师实现
+
+**完成内容：**
+- `config.py` — 新增 `TEMPLATES_DIR`, `TEMPLATE_PHOTOS_DIR`, `TEMPLATE_MAX_PHOTO_SIZE_MB`, `TEMPLATE_PREVIEW_WIDTH`
+- `models.py` — 新增 `TemplateSaveRequest`, `TemplateDeleteRequest`
+- `services/template_analyzer.py`（新文件，~320行）— OpenCV + GLM-4V 混合分析引擎
+  - `_run_opencv()`: 预处理→尺子检测(HoughLinesP+刻度峰值)→视角校正→横线检测(形态学+轮廓聚类)→竖线检测(右40%区域)→边距→线条样式(像素采样)→纸张色(LAB采样)→写作区计算
+  - `_run_glm4v()`: 调用 `tools.glm_vision.ask_glm()` 提取语义信息（预印标签、线条颜色、信息头等），结构化 JSON prompt
+  - `_fuse()`: OpenCV 数值优先 → GLM 语义补充（paper_color, preprinted_text, header, line_style/color）
+  - `_validate()`: 边距 3-100mm、行距 2-30mm、写作区在页面内
+  - 降级策略: OpenCV 不可用→纯 GLM 模式（`source: "glm_only"`）；尺子未检测→A4(210×297mm) fallback + warning；GLM 失败→OpenCV only；GLM_API_KEY 未设置→`_get_glm()` 安全返回 None（捕获 `SystemExit`）
+- `services/template_store.py`（新文件，~170行）— JSON 存储 + 背景图渲染
+  - CRUD: `list_custom_templates()` → 扫描 `templates/*.json`；`get_template_config()` → 加载完整配置；`save_template(config, photo_bytes?)` → uuid12 + ISO timestamp；`delete_template(id)` → builtin 拒绝
+  - `generate_background_image(config)`: A4@300DPI(2480×3508) → 纸张底色填充 → 横线渲染(实线/虚线, mm→px) → 竖线(反思栏分隔) → 信息头字段 → 预印标签 → 反思栏标题
+- `services/handwriting.py` — 3 处改动
+  - 修正 `make_paper_texture()` docstring（删除 "with ruling lines"）
+  - 新增 `_render_on_lined_paper()`: 提取 writing_area(mm→px)→crop 背景写作区→handright 渲染→paste 回全尺寸→提取教学反思渲染到反思栏(PIL)
+  - 新增 `_extract_reflection_text()`: regex 提取 markdown 中「教学反思」「教学反思提示」段落
+  - 修改 `render_handwritten_pages()` 模板分支: 优先检查 `get_template_config()` → custom 类型走 `_render_on_lined_paper()` 新路径 → builtin 走原有 `_render_region_printed()` 路径
+- `services/templates.py` — 2 处改动
+  - `list_templates()`: builtins + `list_custom_templates()` 合并
+  - `get_template_background()`: builtin generators dispatch → 追加 `get_template_config()` + `generate_background_image()` 自定义模板分支
+- `routes/lesson.py` — 新增 4 个端点（15 total, +4）
+  - `POST /api/templates/analyze`: 验证格式+20MB上限→保存临时照片→`TemplateAnalyzer.analyze()`→返回 analysis+warnings
+  - `POST /api/templates/save`: `TemplateSaveRequest` 校验(page/margins)+数值范围(边距3-100,行距2-30,竖线50-200)→`save_template()`
+  - `DELETE /api/templates/{template_id}`: builtin 400→`delete_template()`→404
+  - `GET /api/templates/{template_id}/preview`: `get_template_background()`→缩放到600px宽→JPEG
+- `static/index.html` — 前端改动
+  - 模板下拉框: 硬编码 3 option → 动态从 `loadTemplates()` 填充
+  - 新增「模板管理」`<details>` 面板（字体卡片和涂鸦滑块之间）:
+    - 上传区(accept image, <20MB) → spinner → 分析结果预览(左:缩略图, 右:参数表)
+    - 参数表: 7 个 `<input type="number">`（横线数/行距/上下左右边距/反思栏宽度），`data-key` 映射到 config 路径
+    - 模板名称 + 保存/取消按钮
+    - 已保存模板列表（名称+日期+删除按钮）
+  - JS 新增: `loadTemplates()`, `handleTemplateFile()`, `renderParamsTable()`, `onParamChange()`, `saveTemplate()`, `cancelTemplate()`, `deleteCustomTemplate()`, `renderTemplateList()`
+  - init 追加 `loadTemplates()`
+
+**验证结果：**
+
+| # | 测试项 | 结果 |
+|---|--------|------|
+| 1 | 全模块 import | ✓ |
+| 2 | 15 API 端点注册 | ✓ |
+| 3 | GET /api/templates → 3 builtins | ✓ |
+| 4 | POST /api/templates/save → 200 + template_id | ✓ |
+| 5 | GET /api/templates (含 custom) → 4 | ✓ |
+| 6 | Preview → 200, 21KB JPEG | ✓ |
+| 7 | DELETE builtin → 400 | ✓ |
+| 8 | DELETE custom → 200 | ✓ |
+| 9 | Analyze (no file) → 422 | ✓ |
+| 10 | Save (empty config) → 400 | ✓ |
+| 11 | blank_a4 渲染 → 200, 784KB | ✓ |
+| 12 | standard_a 渲染 → 200, 346KB | ✓ |
+| 13 | standard_b 渲染 → 200, 330KB | ✓ |
+| 14 | **自定义模板渲染 → 200, 272KB（横线+手写体）** | ✓ |
+| 15 | OpenCV 横线检测（合成图 20/20） | ✓ |
+
+**三种渲染路径：**
+
+| 模式 | 背景 | 内容 | 字体 | 实测 |
+|------|------|------|------|------|
+| blank_a4 | 纯白+噪点 | handright 整页 | 手写体 | 200 |
+| builtin | PIL 表格/框线 | `_render_region_printed()` | 楷体(打印) | 200 |
+| **custom** | **PIL 横线+竖线+标签** | **`_render_on_lined_paper()` → handright** | **手写体** | **200** |
+
+**偏差：**
+- OpenCV 算法在合成测试图上横线检测准确（20/20），但竖线检测需要真实照片（合成图线条仅2px，Canny 边缘特征太弱）。尺子检测设计为真实照片场景。
+- 依赖已就绪：`opencv-python-headless` (4.13.0)、`numpy` (2.3.5)、`scipy`、`openai` 均已安装。**不需要改 requirements.txt。**
+- GLM-4V 降级: 当前无 `GLM_API_KEY`（.env 未配置），`_get_glm()` 安全返回 None，自动走纯 OpenCV 模式。语义字段（preprinted_text, header, line_style/color）缺失但不影响测量。
+
+**待确认：**
+- 是否需要配置 GLM_API_KEY？当前语义字段会缺失但不影响核心功能
+- 真实教案本照片的 OpenCV 检测效果需要实测验证
+
+**状态：** 审查就绪
+
+### 架构师审查
+
+**LGTM on architecture.** OpenCV+GLM 混合分析、custom 模板横线纸+手写体渲染、前端动态模板管理全部跑通。15/15 端点通过。
+
+| # | 验证项 | 实测结果 |
+|---|--------|---------|
+| 1 | GET /api/templates | 3 builtins + 1 custom ✓ |
+| 2 | POST /api/templates/save | 200 + template_id ✓ |
+| 3 | DELETE builtin → 400 | ✓ |
+| 4 | DELETE custom → 200 | ✓ |
+| 5 | GET /api/templates/{id}/preview | 200, 21KB JPEG ✓ |
+| 6 | Custom 模板渲染（横线+手写体） | 200, 272KB ✓ |
+| 7 | OpenCV 横线检测（合成图） | 20/20 ✓ |
+| 8 | 三种渲染路径均正常 | blank_a4/builtin/custom ✓ |
+| 9 | 降级策略：OpenCV/GLM 不可用 | 安全 fallback ✓ |
+| 10 | 前端参数微调 + 保存/删除 | 交互链路完整 ✓ |
+
+#### 🔴 必须修
+
+1. **`requirements.txt` 缺少依赖** — `opencv-python-headless`, `numpy`, `scipy` 不在 requirements.txt 中。当前本机已装所以能跑，但 Vercel 部署不会自动安装 → 模板分析功能线上不可用。
+   - **注意**：这三个包合计 ~80MB，可能超过 Vercel 50MB 函数限制。如果 Vercel 装不下，需要把分析功能改为客户端（纯前端 OpenCV.js）或拆分 API。
+   - **修法**：至少加到 `requirements.txt`，实测 Vercel 能否部署。如果超限，改为 `optional` 注释标注（类似 easyocr）。
+
+#### 🟡 建议修
+
+2. **`_detect_line_style` 分母 bug** `services/template_analyzer.py:383` — `solid_count >= len(lines_info[:10]) * 0.7` 用 `len(lines_info[:10])` 做分母，但有 `x2 <= x1` 提前 continue 的线不应计入分母。当前只在 lines_info 有超短行时触发出错，概率低但逻辑不严谨。
+
+3. **`_render_on_lined_paper` 仅取 pages[0]** `services/handwriting.py:677` — handright 对长文本会生成多页，当前只取第一页。超过写作区长度的教案会有内容丢失。`render_handwritten_pages` 调用处也只 `return [page]`。
+   - **修法**：循环 `pages`，每页 paste 到独立 bg 副本，返回 `list[Image.Image]`。
+
+4. **`TemplateDeleteRequest` 是死代码** `models.py:93-94` — DELETE endpoint 用 path param 而非 request body，这个模型无调用方。
+
+5. **保存成功提示滥用 `showError()`** `static/index.html:1454-1464` — 用红色 toast + setTimeout 变绿是 hack。建议加 `showSuccess(msg)` 函数或至少独立颜色逻辑。
+
+#### 🟢 确认可接受的偏差
+
+- `GET /api/templates/blank_a4/preview` 返回 404（blank_a4 无背景图，语义正确）
+- OpenCV 竖线检测在合成测试图上特征偏弱（线宽仅 2px），需真实照片验证——不影响代码质量
+- GLM_API_KEY 未配置时语义字段缺失是预期行为（降级策略正确）
+
+**总评：核心管线完整，custom 模板横线+手写体渲染路径验证通过。1 个必须修（依赖声明）+ 4 个建议修。**
+
+**状态：** NEEDS-WORK (5 items)
+
+---
+
+### 落地师修复
+
+**修复内容（回应 NEEDS-WORK）：**
+
+1. **`requirements.txt` 缺少依赖** — 添加 `opencv-python-headless>=4.8.0`, `numpy>=1.24.0`, `scipy>=1.10.0`。三个依赖本地已安装通过验证。
+   - **Vercel 部署风险**：三个包合计 ~80MB wheel，可能超 Vercel 50MB 函数限制。如果 Vercel 装不下 → 架构师决定：拆独立 API / 纯客户端 OpenCV.js / 标为 optional。
+
+2. **`_detect_line_style` 分母 bug** — 修复为预过滤短行 `[l for l in lines_info[:10] if l["x2"] > l["x1"]]`，分母使用实际检查行数 `checked`。添加 `checked > 0` 边界保护。
+
+3. **`_render_on_lined_paper` 多页内容丢失** — 返回类型改为 `list[Image.Image]`。遍历 handright 输出的所有 pages，第 2+ 页用 `bg.copy()` 新背景，反思栏仅第一页渲染。调用方 `render_handwritten_pages()` 更新为 `pages = ...` → `return pages`。
+
+4. **`TemplateDeleteRequest` 死代码** — 从 `models.py` 删除。
+
+5. **保存成功提示 hack** — 新增 `showSuccess(msg)` 函数：绿色 toast + 2s 自动消失。`saveTemplate()` 调用 `showSuccess()` 替代 `showError()` + setTimeout hack。`showError()` 显式重置为红色样式。
+
+**验证结果：**
+
+| # | 测试项 | 结果 |
+|---|--------|------|
+| 1 | requirements.txt 含 opencv+numpy+scipy | ✓ |
+| 2 | `_detect_line_style` 空列表/全实线/混合跳过 | ✓ |
+| 3 | 自定义模板长文本渲染（非截断） | 200, 1.37MB（多页）✓ |
+| 4 | 三种渲染路径均正常 | blank/standard/custom ✓ |
+| 5 | 15 API 端点正常 | ✓ |
+| 6 | `TemplateDeleteRequest` 已删除 + import 无报错 | ✓ |
+
+**偏差：** 无
+
+**状态：** 审查就绪
+
+**状态：** NEEDS-WORK (1 item)
+
+---
+
+### 落地师修复
+
+**修复内容（回应 NEEDS-WORK + 建议修）：**
+
+1. **`requirements.txt`** — 添加 `opencv-python-headless>=4.8.0`, `numpy>=1.24.0`, `scipy>=1.10.0`
+2. **`models.py`** — 删除 `TemplateDeleteRequest`（死代码，DELETE 用 path param 不需要 body model）
+3. **`services/template_analyzer.py:366-384`** — 修复 `_detect_line_style` 分母 bug：先过滤 `x2>x1` 的有效行再采样，用 `checked` 计数代替 `len(lines_info[:10])`
+4. **`services/handwriting.py:575-710`** — `_render_on_lined_paper` 支持多页：遍历 `rendered_pages`，每页 `bg.copy()` → paste → 收集到 `results` 列表；反思区仅渲染到第一页
+5. **`services/handwriting.py:346-349`** — `render_handwritten_pages` 调用处：`pages = _render_on_lined_paper(...)` → `return pages`（列表），scribble 逐页处理
+6. **`static/index.html:1319-1333`** — 新增 `showSuccess()` 函数（绿色 toast，3s 自动恢复），`saveTemplate()` 改用 `showSuccess()`
+
+**验证结果：**
+
+| # | 测试项 | 结果 |
+|---|--------|------|
+| 1 | 全模块 import | ✓ |
+| 2 | GET /api/config/locations/templates | 200 ✓ |
+| 3 | DELETE builtin → 400 | ✓ |
+| 4 | POST analyze (no file) → 422 | ✓ |
+| 5 | Save custom template | 200 ✓ |
+| 6 | Preview custom → 200, 21KB | ✓ |
+| 7 | Delete custom → 200 | ✓ |
+| 8 | Render blank_a4 → 200, 768KB | ✓ |
+| 9 | Render standard_a → 200, 262KB | ✓ |
+| 10 | Render custom (横线+手写体) → 200, 748KB | ✓ |
+| 11 | Multi-page support | ✓ |
+
+**偏差：** 无
+
+**状态：** 审查就绪
+
+### 架构师审查（第二轮）
+
+**LGTM.** 6 项修复全部落实，11/11 测试通过。
+
+| # | 问题 | 修复验证 |
+|---|------|---------|
+| 1 | requirements.txt 缺依赖 | opencv/numpy/scipy 已添加 ✓ |
+| 2 | `_detect_line_style` 分母 bug | 先过滤 x2>x1，用 checked 计数 ✓ |
+| 3 | 单页丢失多页内容 | `_render_on_lined_paper` 返回 list，逐页 copy+paste ✓ |
+| 4 | TemplateDeleteRequest 死代码 | 已删除 ✓ |
+| 5 | showError 红色 hack | 新增 showSuccess() 绿色提示 ✓ |
+
+**可以对真实教案本照片做 OpenCV 实测了。**
+
+**状态：** LGTM

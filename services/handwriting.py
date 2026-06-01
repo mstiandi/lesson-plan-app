@@ -25,7 +25,7 @@ def _get_reader():
 
 
 def make_paper_texture(w: int, h: int) -> Image.Image:
-    """Create a paper-textured background image with ruling lines and noise."""
+    """Create a paper-textured background image with subtle noise."""
     img = Image.new("RGB", (w, h), (255, 255, 255))
     pixels = img.load()
     for y in range(h):
@@ -339,8 +339,19 @@ def render_handwritten_pages(
             # Fallback to blank A4
             return render_handwritten_pages(content, font_path, session_id, scribble_prob, "blank_a4")
 
+        # ── Custom template: lined paper + handwritten rendering ──
+        from services.template_store import get_template_config
+        custom_config = get_template_config(template_id)
+        if custom_config and custom_config.get("type") == "custom":
+            pages = _render_on_lined_paper(plain, bg, custom_config, font_path, session_id, None)
+            if scribble_prob > 0:
+                pages = [add_scribble_marks(p, font_path, scribble_prob) for p in pages]
+            return pages
+
+        # ── Builtin template: sectioned printed rendering ──
         sections = parse_markdown_sections(content)
-        template = __import__("services.templates", fromlist=["TEMPLATES"]).TEMPLATES.get(template_id, {})
+        from services.templates import TEMPLATES
+        template = TEMPLATES.get(template_id, {})
         regions = template.get("regions", [])
         matched = match_sections_to_regions(sections, regions)
 
@@ -571,6 +582,149 @@ def _render_with_char_bank(
         pages.append(img)
 
     return pages
+
+
+def _render_on_lined_paper(
+    text: str,
+    bg: Image.Image,
+    config: dict,
+    font_path: str,
+    session_id: str | None,
+    char_cache: dict | None,
+) -> list[Image.Image]:
+    """Render handwritten text onto a lined-paper background.
+
+    Crops the writing area from the background, renders text with handright,
+    pastes rendered content back onto the full background.
+    Returns one page per handright output page.
+    """
+    from handright import Template, handwrite
+
+    DPI = 300
+    W, H = 2480, 3508
+
+    def mm_to_px(mm_val):
+        return int(mm_val * DPI / 25.4)
+
+    # Extract writing area from config
+    wa = config.get("writing_area", {})
+    margins = config.get("margins", {})
+    divider = config.get("vertical_divider", {})
+
+    if wa and wa.get("width_mm") and wa.get("height_mm"):
+        wa_x = mm_to_px(wa["x_mm"])
+        wa_y = mm_to_px(wa["y_mm"])
+        wa_w = mm_to_px(wa["width_mm"])
+        wa_h = mm_to_px(wa["height_mm"])
+    else:
+        # Fallback: compute from margins
+        wa_x = mm_to_px(margins.get("left_mm", 25))
+        wa_y = mm_to_px(margins.get("top_mm", 25))
+        if divider.get("exists") and divider.get("x_mm"):
+            wa_right = mm_to_px(divider["x_mm"])
+        else:
+            wa_right = W - mm_to_px(margins.get("right_mm", 20))
+        wa_w = wa_right - wa_x
+        wa_h = H - wa_y - mm_to_px(margins.get("bottom_mm", 20))
+
+    # Ensure bounds
+    wa_x = max(0, wa_x)
+    wa_y = max(0, wa_y)
+    wa_w = min(W - wa_x, wa_w)
+    wa_h = min(H - wa_y, wa_h)
+
+    if wa_w < 200 or wa_h < 200:
+        # Writing area too small, render on full page
+        wa_x, wa_y = 280, 260
+        wa_w, wa_h = W - 560, H - 500
+
+    # Use handright with margins aligned to the template's ruling lines.
+    # Render on full background (not cropped) so header/divider stay visible.
+    header_cfg = config.get("header", {})
+    header_estimate_px = 160  # title + deco + 2 info rows
+    if header_cfg.get("exists") and header_cfg.get("fields"):
+        n_fields = len(header_cfg["fields"])
+        header_estimate_px += max(0, (n_fields - 4) // 3) * 36
+
+    handright_left = mm_to_px(margins.get("left_mm", 24)) + 12
+    if divider.get("exists") and divider.get("x_mm"):
+        right_edge = mm_to_px(divider["x_mm"])
+    else:
+        right_edge = W - mm_to_px(margins.get("right_mm", 15))
+    handright_right = W - right_edge + 12
+    handright_top = mm_to_px(margins.get("top_mm", 18)) + header_estimate_px + mm_to_px(5)
+    handright_bottom = mm_to_px(margins.get("bottom_mm", 25))
+
+    # Handright params
+    FONT_SIZE = 58
+    LINE_HEIGHT = 76
+    params = _handright_params(font_path, FONT_SIZE, LINE_HEIGHT)
+    font = ImageFont.truetype(font_path, params["font_size"])
+
+    template = Template(
+        background=bg,
+        font=font,
+        line_spacing=params["line_height"],
+        fill=params["fill"],
+        left_margin=handright_left,
+        top_margin=handright_top,
+        right_margin=handright_right,
+        bottom_margin=handright_bottom,
+        word_spacing=0,
+        line_spacing_sigma=params["line_spacing_sigma"],
+        font_size_sigma=params["font_size_sigma"],
+        word_spacing_sigma=params["word_spacing_sigma"],
+        start_chars='"「（《『',
+        perturb_x_sigma=params["perturb_x_sigma"],
+        perturb_y_sigma=params["perturb_y_sigma"],
+        perturb_theta_sigma=params["perturb_theta_sigma"],
+    )
+
+    try:
+        rendered_pages = list(handwrite(text, template))
+    except Exception:
+        return [bg]
+
+    if not rendered_pages:
+        return [bg]
+
+    # ── Reflection zone (only on first page) ──
+    refl = config.get("reflection_zone", {})
+    results = []
+    for page_idx, rendered_page in enumerate(rendered_pages):
+        if page_idx == 0 and refl.get("exists") and divider.get("exists") and divider.get("x_mm"):
+            refl_text = _extract_reflection_text(text)
+            if refl_text:
+                refl_x = mm_to_px(divider["x_mm"])
+                refl_width = W - refl_x - mm_to_px(margins.get("right_mm", 15))
+                refl_y = handright_top
+                refl_height = H - handright_top - handright_bottom
+                if refl_width > 100 and refl_height > 200:
+                    refl_region = _render_region_pil(
+                        refl_text, refl_width - 12, refl_height, font_path, 30
+                    )
+                    if refl_region:
+                        rendered_page.paste(refl_region, (refl_x + 8, refl_y))
+        results.append(rendered_page)
+
+    return results
+
+
+def _extract_reflection_text(text: str) -> str | None:
+    """Extract the '教学反思' section from markdown content."""
+    import re
+    # Look for 教学反思 heading and capture everything after it
+    patterns = [
+        r'##\s*教学反思.*?\n(.*?)(?=##\s|\Z)',
+        r'##\s*教学反思提示.*?\n(.*?)(?=##\s|\Z)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.DOTALL)
+        if m:
+            body = m.group(1).strip()
+            if body:
+                return body
+    return None
 
 
 def pages_to_pdf(pages: list[Image.Image]) -> bytes:

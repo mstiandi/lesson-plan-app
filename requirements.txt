@@ -6,3 +6,6 @@ fpdf2>=2.7.0
 python-multipart>=0.0.6
 # easyocr>=1.7.0  # 可选：笔迹训练功能需要。本地使用请取消注释并 pip install
 handright>=8.0.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+scipy>=1.10.0
