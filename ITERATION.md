@@ -408,3 +408,81 @@ _client = anthropic.Anthropic(base_url=BASE_URL, api_key=API_KEY)
 **总评：代码工整，无阻塞性 bug。5 个建议清理项都属于代码卫生，不影响功能。**
 
 **状态：** LGTM (全项目)
+
+---
+
+### 架构师审查（终审 · 上线前 · 2026-06-01）
+
+全链路 6 端点冒烟通过。
+
+| 端点 | 状态 |
+|------|------|
+| GET /api/config | 200 |
+| GET /api/locations | 200 |
+| GET /api/templates | 200 |
+| GET /api/font-preview | 200 |
+| POST /api/requirements/query | 200 (静态数据, 8ms) |
+| POST /api/handwriting/render | 200 |
+
+#### 🔴 建议上线前修
+
+| # | 文件 | 问题 |
+|---|------|------|
+| 1 | `routes/lesson.py:111-125` | `/api/school-requirements` 死代码，已被 `/api/requirements/query` 替代 |
+
+#### 🟢 确认无问题
+
+- `timeout=60` ✓
+- 下载用 blob URL ✓
+- 字体全部部署 ✓
+- 折叠功能 ✓
+- API key 已配 ✓
+- 三种业务 prompt 独立 ✓
+- 静态要求查询 ✓
+
+**可以上线。**
+
+**状态：** LGTM
+
+---
+
+## I-006 — 2026-06-01 [小改动]
+
+### 架构师计划
+
+**目标：** PDF 背景改为纯白，解决打印色差问题。
+
+**改什么：** `services/handwriting.py:29` — `make_paper_texture()` 基础色 `(252, 249, 240)` → `(255, 255, 255)`
+
+**原因：** 奶油色背景打印在白 A4 纸上能看出色差。纯白背景打印后与纸张融合，无色差。噪点（±4）保留——纯白底上 ±4 的变化肉眼和打印均不可见。
+
+**验什么：** 生成 PDF → 背景纯白 → 打印与 A4 纸无色差 → 手写渲染不受影响。
+
+**Spec:** [SPEC-v3.6.md](SPEC-v3.6.md)
+
+**附加清理：** `routes/lesson.py:111-125` — 删除 `/api/school-requirements` 端点。前端零调用，已被 `/api/requirements/query` 替代。
+
+### 落地师实现
+
+**完成内容：**
+- `services/handwriting.py:29` — 基础色 `(252, 249, 240)` → `(255, 255, 255)`
+- 验证：`make_paper_texture()` 首像素 `(255,255,255)` ✓；渲染端点 200，1.3MB PDF ✓
+- `routes/lesson.py:111-125` — 删除 `/api/school-requirements` 死代码 + 清理 import
+- 验证：import 无错误，10 端点正常注册 ✓
+
+**偏差：** 无
+
+**状态：** 审查就绪
+
+### 架构师审查
+
+**LGTM.** 两个改动均正确执行。
+
+| # | 文件 | 改动 | 验证 |
+|---|------|------|------|
+| 1 | `services/handwriting.py:29` | `(252,249,240)` → `(255,255,255)` | ✓ 纯白背景 |
+| 2 | `routes/lesson.py:111-125` | 删 `/api/school-requirements` + import 清理 | ✓ 死代码移除 |
+
+附带发现：`services/ai.py:338` `build_requirements_query` 已无调用方，也是死代码。下次清理即可，不影响功能。
+
+**状态：** LGTM

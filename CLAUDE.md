@@ -1,5 +1,15 @@
 # CLAUDE.md — 教案草稿生成器
 
+## 项目网址
+
+| 项目 | 地址 |
+|------|------|
+| **线上** | https://lesson-plan.hzd-ms.com |
+| **GitHub** | https://github.com/mstiandi/lesson-plan-app |
+| **Vercel** | shuai-meng-s-projects/lesson-plan-app |
+| **域名 DNS** | Cloudflare — A `lesson-plan` → `76.76.21.21`（灰云）|
+| **本地** | http://127.0.0.1:8877 |
+
 ## ⛔ 架构师/落地师协议（最高优先级，不可被其他规则覆盖）
 
 本项目有两类 agent：

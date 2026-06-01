@@ -26,7 +26,7 @@ def _get_reader():
 
 def make_paper_texture(w: int, h: int) -> Image.Image:
     """Create a paper-textured background image with ruling lines and noise."""
-    img = Image.new("RGB", (w, h), (252, 249, 240))
+    img = Image.new("RGB", (w, h), (255, 255, 255))
     pixels = img.load()
     for y in range(h):
         for x in range(w):

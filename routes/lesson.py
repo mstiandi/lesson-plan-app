@@ -6,7 +6,7 @@ from fastapi.responses import Response
 from urllib.parse import quote
 from models import GenerateRequest, RenderRequest, TrainRequest, RequirementsQuery, ReviseRequest
 from services.ai import (
-    build_system_prompt, build_user_content, call_ai, build_requirements_query,
+    build_system_prompt, build_user_content, call_ai,
     REVISE_PROMPT, BUSINESS_TYPE_NAMES,
 )
 from services.location import get_location_requirements
@@ -104,23 +104,6 @@ async def revise_content(req: ReviseRequest):
         loop = asyncio.get_running_loop()
         content = await loop.run_in_executor(executor, call_ai, system, user)
         return {"success": True, "content": content.strip()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/school-requirements")
-async def query_school_requirements(req: GenerateRequest):
-    """[兼容旧版] AI 根据学校信息 + 地区政策智能生成教案要求建议。"""
-    school = req.school.model_dump()
-    teaching = req.teaching.model_dump()
-
-    loc_reqs = get_location_requirements(school["province"], school["city"])
-    system, user = build_requirements_query(school, "lesson_plan", loc_reqs)
-
-    try:
-        loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(executor, call_ai, system, user)
-        return {"success": True, "requirements": content.strip()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
