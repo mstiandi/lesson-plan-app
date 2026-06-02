@@ -301,17 +301,10 @@ async def analyze_template_photo(file: UploadFile = File(...)):
         analyzer = TemplateAnalyzer(str(temp_path))
         result = analyzer.analyze()
 
-        # Extract photo bytes for the client to store temporarily
-        response = {"success": True, "analysis": {k: v for k, v in result.items()
-                     if not k.startswith("_")},
+        # Clean analysis (no binary data)
+        analysis = {k: v for k, v in result.items() if not k.startswith("_")}
+        response = {"success": True, "analysis": analysis,
                     "warnings": result.get("warnings", [])}
-
-        # Store photo bytes in temp file for save step
-        if result.get("_photo_bytes"):
-            photo_path = TEMPLATE_PHOTOS_DIR / f"photo_{int(time.time())}.jpg"
-            photo_path.write_bytes(result["_photo_bytes"])
-            response["photo_temp_id"] = photo_path.name
-
         return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -319,34 +312,27 @@ async def analyze_template_photo(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"分析失败: {e}")
 
 
-@router.get("/templates/photo/{photo_name}")
-async def serve_temp_photo(photo_name: str):
-    """Serve a temporary template photo (preview during analysis)."""
-    from config import TEMPLATE_PHOTOS_DIR
-    path = TEMPLATE_PHOTOS_DIR / photo_name
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="照片不存在")
-    return Response(content=path.read_bytes(), media_type="image/jpeg")
+@router.post("/templates/preview")
+async def preview_template(config: dict):
+    """Generate a low-res JPEG preview from config parameters."""
+    from services.template_store import generate_background_image
+    from config import TEMPLATE_PREVIEW_WIDTH
+    import io
+
+    bg = generate_background_image(config)
+    ratio = TEMPLATE_PREVIEW_WIDTH / bg.width
+    new_h = int(bg.height * ratio)
+    preview = bg.resize((TEMPLATE_PREVIEW_WIDTH, new_h), Image.LANCZOS)
+    buf = io.BytesIO()
+    preview.save(buf, format="JPEG", quality=85)
+    return Response(content=buf.getvalue(), media_type="image/jpeg")
 
 
 @router.post("/templates/save")
 async def save_template(req: TemplateSaveRequest):
-    """Save a custom template config + background photo. Returns template_id."""
-    config = req.config
-
-    from services.template_store import save_template
-
-    # Load photo bytes from temp file if provided
-    photo_bytes = None
-    photo_temp_id = config.pop("_photo_temp_id", None)
-    if photo_temp_id:
-        photo_path = TEMPLATE_PHOTOS_DIR / photo_temp_id
-        if photo_path.exists():
-            photo_bytes = photo_path.read_bytes()
-            try: photo_path.unlink()
-            except Exception: pass
-
-    tid = save_template(config, photo_bytes)
+    """Save a custom template config. Returns template_id."""
+    from services.template_store import save_template as st_save
+    tid = st_save(req.config)
     return {"success": True, "template_id": tid}
 
 

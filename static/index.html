@@ -542,36 +542,26 @@
         <!-- Analysis spinner -->
         <div class="spinner" id="tmplSpinner">正在扫描分析模板照片…</div>
 
-        <!-- Analysis result: photo + draggable boundary overlay -->
+        <!-- Analysis result: clean preview + parameter panel -->
         <div id="tmplResult" class="hidden" style="margin-top:12px;">
-          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">拖四个角调整写作区，拖红色竖线调反思区分割，印刷文字可编辑</div>
-          <div id="tmplPreviewContainer" style="position:relative;display:inline-block;max-width:100%;cursor:default;user-select:none;">
-            <img id="tmplPhoto" src="" alt="模板照片" style="width:100%;display:block;border-radius:6px;border:1px solid #ddd;">
-            <div id="tmplOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
-              <!-- Dark mask: 4 strips around the writing area -->
-              <div id="tmplMaskTop" style="position:absolute;top:0;left:0;width:100%;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
-              <div id="tmplMaskBottom" style="position:absolute;left:0;width:100%;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
-              <div id="tmplMaskLeft" style="position:absolute;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
-              <div id="tmplMaskRight" style="position:absolute;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
-              <!-- Writing area border -->
-              <div id="tmplWABorder" style="position:absolute;border:2px dashed #4a90d9;pointer-events:none;"></div>
-              <!-- 4 corner drag handles -->
-              <div id="tmplHandleTL" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:nw-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
-              <div id="tmplHandleTR" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:ne-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
-              <div id="tmplHandleBL" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:sw-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
-              <div id="tmplHandleBR" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:se-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
-              <!-- Draggable divider -->
-              <div id="tmplDivider" style="position:absolute;width:4px;background:#e74c3c;cursor:ew-resize;pointer-events:auto;z-index:3;display:none;box-shadow:0 0 3px rgba(0,0,0,0.2);">
-                <div style="position:absolute;top:-10px;left:-5px;width:14px;height:14px;background:#e74c3c;border:2px solid #fff;border-radius:50%;box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;">
+            <div style="flex:0 0 auto;width:240px;">
+              <div style="font-size:12px;color:#888;margin-bottom:4px;">模板预览</div>
+              <img id="tmplPreview" src="" alt="模板预览"
+                   style="width:100%;border:1px solid #ddd;border-radius:6px;">
+            </div>
+            <div style="flex:1;min-width:250px;">
+              <div style="font-size:12px;color:#888;margin-bottom:6px;">调整参数（0.5秒后自动刷新预览）</div>
+              <table id="tmplParams" style="width:100%;font-size:12px;border-collapse:collapse;"></table>
+              <div style="margin-top:10px;">
+                <label style="font-size:12px;">模板名称</label>
+                <input type="text" id="tmplName" placeholder="如：我的教案本" style="width:100%;">
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;">
+                <button class="btn-primary btn-sm" onclick="saveTemplate()">保存模板</button>
+                <button class="btn-outline btn-sm" onclick="cancelTemplate()">取消</button>
               </div>
             </div>
-          </div>
-          <div id="tmplLabels" style="margin-top:8px;font-size:12px;"></div>
-          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
-            <label style="font-size:12px;">模板名称</label>
-            <input type="text" id="tmplName" placeholder="如：我的教案本" style="flex:1;max-width:300px;">
-            <button class="btn-primary btn-sm" onclick="saveTemplate()">保存模板</button>
-            <button class="btn-outline btn-sm" onclick="cancelTemplate()">取消</button>
           </div>
         </div>
 
@@ -1346,10 +1336,7 @@ function hideError() {
 
 // ===== TEMPLATE MANAGEMENT =====
 let tmplAnalysis = null;
-let tmplPhotoUrl = null;
-let tmplPhotoId = null;
-let tmplDragTarget = null;
-let tmplDragStart = {};
+let tmplPreviewTimer = null;
 
 async function loadTemplates() {
   try {
@@ -1398,17 +1385,24 @@ async function handleTemplateFile(event) {
     const data = await r.json();
     if (!data.success) throw new Error(data.detail || '分析失败');
 
-    tmplAnalysis = data.analysis;
-    tmplPhotoId = data.photo_temp_id || null;
-
-    // Load photo from temp endpoint
-    if (tmplPhotoId) {
-      tmplPhotoUrl = '/api/templates/photo/' + tmplPhotoId;
-      document.getElementById('tmplPhoto').src = tmplPhotoUrl;
+    // Fix up GLM data with sensible defaults if needed
+    let a = data.analysis;
+    if (!a.writing_area || !a.writing_area.width_mm || a.writing_area.width_mm < 60) {
+      a.writing_area = {x_mm: 24, y_mm: 50, width_mm: 162, height_mm: 225};
     }
+    if (!a.margins) a.margins = {top_mm: 24, bottom_mm: 24, left_mm: 24, right_mm: 18};
+    if (!a.vertical_divider || !a.vertical_divider.exists) {
+      a.vertical_divider = {exists: true, x_mm: 175, style: 'solid', color: 'gray', color_rgb: [100,95,85]};
+    }
+    if (!a.ruling) a.ruling = {line_count: 18, line_spacing_mm: 8, style: 'solid'};
+    if (!a.header) a.header = {exists: true, fields: []};
+    if (!a.reflection_zone) a.reflection_zone = {exists: true, label: '教学反思'};
+    a.page = {width_mm: 210, height_mm: 297, paper_color: 'white', paper_rgb: [255,255,255]};
 
+    tmplAnalysis = a;
     document.getElementById('tmplName').value = '';
-    setupOverlay();
+    renderParamsTable(a);
+    refreshPreview();
     if (data.warnings && data.warnings.length > 0) {
       showError('提示：' + data.warnings.join('；'));
     }
@@ -1420,286 +1414,74 @@ async function handleTemplateFile(event) {
   }
 }
 
-// ── Overlay: dark mask + draggable writing area + divider ──
-
-function setupOverlay() {
-  const a = tmplAnalysis;
-  let wa = a.writing_area || {};
-
-  // ── Validate/fix writing area ──
-  // If GLM gave garbage (tiny box or way off), use sensible defaults
-  const pageW = (a.page && a.page.width_mm) || 210;
-  const pageH = (a.page && a.page.height_mm) || 297;
-
-  if (!wa.width_mm || wa.width_mm < 60 || !wa.height_mm || wa.height_mm < 80
-      || wa.x_mm < 0 || wa.y_mm < 0 || wa.x_mm > 100 || wa.y_mm > 160) {
-    // Default: writing area fills most of the page with ~25mm margins
-    wa = {
-      x_mm: 25, y_mm: 45,
-      width_mm: pageW - 50,
-      height_mm: pageH - 70,
-    };
-    a.writing_area = wa;
-    a.margins = {
-      top_mm: wa.y_mm, bottom_mm: pageH - wa.y_mm - wa.height_mm,
-      left_mm: wa.x_mm, right_mm: pageW - wa.x_mm - wa.width_mm,
-    };
-  }
-
-  // If no divider yet, add a default one at 175mm from left
-  if (!a.vertical_divider || !a.vertical_divider.exists) {
-    a.vertical_divider = a.vertical_divider || {};
-  }
-  // If divider x is weird, default to 175mm
-  if (!a.vertical_divider.x_mm || a.vertical_divider.x_mm < 150 || a.vertical_divider.x_mm > 200) {
-    a.vertical_divider.exists = true;
-    a.vertical_divider.x_mm = 175;
-  }
-  if (!a.reflection_zone || !a.reflection_zone.exists) {
-    a.reflection_zone = {exists: true, label: '教学反思',
-      x_mm: a.vertical_divider.x_mm,
-      width_mm: pageW - a.vertical_divider.x_mm - (a.margins?.right_mm || 18)};
-  }
-
-  // ── Wait for image to load ──
-  const photo = document.getElementById('tmplPhoto');
-  function positionOverlay() {
-    const cw = photo.clientWidth;
-    const ch = photo.clientHeight;
-    if (cw < 10) return setTimeout(positionOverlay, 50); // not ready
-    const ppm = cw / pageW;
-
-    function px(v) { return Math.round(v * ppm); }
-
-    const waX = px(wa.x_mm), waY = px(wa.y_mm);
-    const waW = px(wa.width_mm), waH = px(wa.height_mm);
-
-    // ── Dark masks around writing area ──
-    document.getElementById('tmplMaskTop').style.cssText =
-      `height:${waY}px;`;
-    document.getElementById('tmplMaskBottom').style.cssText =
-      `top:${waY+waH}px;height:${ch-waY-waH}px;`;
-    document.getElementById('tmplMaskLeft').style.cssText =
-      `top:${waY}px;left:0;width:${waX}px;height:${waH}px;`;
-    document.getElementById('tmplMaskRight').style.cssText =
-      `top:${waY}px;left:${waX+waW}px;width:${cw-waX-waW}px;height:${waH}px;`;
-
-    // ── Writing area border ──
-    document.getElementById('tmplWABorder').style.cssText =
-      `left:${waX}px;top:${waY}px;width:${waW}px;height:${waH}px;`;
-
-    // ── Corner handles ──
-    const setH = (id, x, y) => {
-      const el = document.getElementById(id);
-      el.style.left = (x - 10) + 'px';
-      el.style.top = (y - 10) + 'px';
-    };
-    setH('tmplHandleTL', waX, waY);
-    setH('tmplHandleTR', waX + waW, waY);
-    setH('tmplHandleBL', waX, waY + waH);
-    setH('tmplHandleBR', waX + waW, waY + waH);
-
-    // ── Divider ──
-    const dv = a.vertical_divider || {};
-    const dvEl = document.getElementById('tmplDivider');
-    if (dv.exists && dv.x_mm) {
-      dvEl.style.cssText = `display:block;left:${px(dv.x_mm)}px;top:${waY}px;height:${waH}px;`;
-    } else {
-      dvEl.style.display = 'none';
-    }
-
-    // Setup drag
-    setupDrag('tmplHandleTL', 'tl');
-    setupDrag('tmplHandleTR', 'tr');
-    setupDrag('tmplHandleBL', 'bl');
-    setupDrag('tmplHandleBR', 'br');
-    setupDividerDrag();
-
-    // Labels
-    renderLabels(a);
-  }
-
-  // If image already loaded, position now; otherwise wait
-  if (photo.complete && photo.naturalWidth > 0) {
-    positionOverlay();
-  } else {
-    photo.onload = positionOverlay;
-  }
-}
-
-function setupDrag(handleId, corner) {
-  const handle = document.getElementById(handleId);
-  const overlay = document.getElementById('tmplOverlay');
-  const container = document.getElementById('tmplPreviewContainer');
-
-  handle.onmousedown = handle.ontouchstart = function(e) {
-    e.preventDefault();
-    tmplDragTarget = corner;
-    tmplDragStart.x = (e.touches ? e.touches[0].clientX : e.clientX);
-    tmplDragStart.y = (e.touches ? e.touches[0].clientY : e.clientY);
-
-    // Read current rect position in px from border element
-    const border = document.getElementById('tmplWABorder');
-    tmplDragStart.rect = {
-      left: parseFloat(border.style.left) || 0,
-      top: parseFloat(border.style.top) || 0,
-      width: parseFloat(border.style.width) || 100,
-      height: parseFloat(border.style.height) || 100,
-    };
-
-    const onMove = function(ev) {
-      const dx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - tmplDragStart.x;
-      const dy = (ev.touches ? ev.touches[0].clientY : ev.clientY) - tmplDragStart.y;
-      const r = tmplDragStart.rect;
-
-      let newL = r.left, newT = r.top, newW = r.width, newH = r.height;
-      if (corner === 'tl') { newL = r.left + dx; newT = r.top + dy; newW = r.width - dx; newH = r.height - dy; }
-      if (corner === 'tr') { newT = r.top + dy; newW = r.width + dx; newH = r.height - dy; }
-      if (corner === 'bl') { newL = r.left + dx; newW = r.width - dx; newH = r.height + dy; }
-      if (corner === 'br') { newW = r.width + dx; newH = r.height + dy; }
-
-      if (newW < 40 || newH < 40) return;
-
-      // Update WA border
-      document.getElementById('tmplWABorder').style.cssText =
-        `left:${newL}px;top:${newT}px;width:${newW}px;height:${newH}px;`;
-
-      // Update dark masks
-      const cw = document.getElementById('tmplPhoto').clientWidth;
-      const ch = document.getElementById('tmplPhoto').clientHeight;
-      document.getElementById('tmplMaskTop').style.height = newT + 'px';
-      document.getElementById('tmplMaskBottom').style.cssText =
-        `top:${newT+newH}px;height:${ch-newT-newH}px;`;
-      document.getElementById('tmplMaskLeft').style.cssText =
-        `top:${newT}px;left:0;width:${newL}px;height:${newH}px;`;
-      document.getElementById('tmplMaskRight').style.cssText =
-        `top:${newT}px;left:${newL+newW}px;width:${cw-newL-newW}px;height:${newH}px;`;
-
-      // Move handles
-      document.getElementById('tmplHandleTL').style.left = (newL - 10) + 'px';
-      document.getElementById('tmplHandleTL').style.top = (newT - 10) + 'px';
-      document.getElementById('tmplHandleTR').style.left = (newL + newW - 10) + 'px';
-      document.getElementById('tmplHandleTR').style.top = (newT - 10) + 'px';
-      document.getElementById('tmplHandleBL').style.left = (newL - 10) + 'px';
-      document.getElementById('tmplHandleBL').style.top = (newT + newH - 10) + 'px';
-      document.getElementById('tmplHandleBR').style.left = (newL + newW - 10) + 'px';
-      document.getElementById('tmplHandleBR').style.top = (newT + newH - 10) + 'px';
-
-      // Move divider
-      const dvEl = document.getElementById('tmplDivider');
-      if (dvEl.style.display !== 'none') {
-        dvEl.style.top = newT + 'px';
-        dvEl.style.height = newH + 'px';
-      }
-    };
-
-    const onUp = function() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onUp);
-      tmplDragTarget = null;
-      syncAnalysisFromOverlay();
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    document.addEventListener('touchmove', onMove);
-    document.addEventListener('touchend', onUp);
-  };
-}
-
-function setupDividerDrag() {
-  const dv = document.getElementById('tmplDivider');
-  dv.onmousedown = dv.ontouchstart = function(e) {
-    e.preventDefault();
-    tmplDragTarget = 'divider';
-    tmplDragStart.x = (e.touches ? e.touches[0].clientX : e.clientX);
-
-    const onMove = function(ev) {
-      const dx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - tmplDragStart.x;
-      const curL = parseFloat(dv.style.left) + dx;
-      tmplDragStart.x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-      // Don't allow past right edge or before center
-      const maxX = document.getElementById('tmplPhoto').clientWidth - 30;
-      if (curL > 100 && curL < maxX) {
-        dv.style.left = curL + 'px';
-      }
-    };
-
-    const onUp = function() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onUp);
-      tmplDragTarget = null;
-      syncAnalysisFromOverlay();
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    document.addEventListener('touchmove', onMove);
-    document.addEventListener('touchend', onUp);
-  };
-}
-
-function syncAnalysisFromOverlay() {
-  const border = document.getElementById('tmplWABorder');
-  const photo = document.getElementById('tmplPhoto');
-  const cw = photo.clientWidth;
-  const ppm = cw / ((tmplAnalysis.page && tmplAnalysis.page.width_mm) || 210);
-
-  const left = parseFloat(border.style.left) / ppm;
-  const top = parseFloat(border.style.top) / ppm;
-  const w = parseFloat(border.style.width) / ppm;
-  const h = parseFloat(border.style.height) / ppm;
-
-  tmplAnalysis.writing_area = { x_mm: Math.round(left*10)/10, y_mm: Math.round(top*10)/10,
-    width_mm: Math.round(w*10)/10, height_mm: Math.round(h*10)/10 };
-  tmplAnalysis.margins = { top_mm: Math.round(top*10)/10,
-    bottom_mm: Math.round((297 - top - h)*10)/10,
-    left_mm: Math.round(left*10)/10,
-    right_mm: Math.round((210 - left - w)*10)/10 };
-
-  const dv = document.getElementById('tmplDivider');
-  if (dv.style.display !== 'none') {
-    const dvX = parseFloat(dv.style.left) / ppm;
-    tmplAnalysis.vertical_divider.x_mm = Math.round(dvX*10)/10;
-    tmplAnalysis.reflection_zone.x_mm = tmplAnalysis.vertical_divider.x_mm;
-    tmplAnalysis.reflection_zone.width_mm = Math.round((210 - dvX - (tmplAnalysis.margins.right_mm || 18))*10)/10;
-  }
-}
-
-function renderLabels(analysis) {
-  const pre = analysis.preprinted_text || [];
+function renderParamsTable(analysis) {
+  const m = analysis.margins || {};
+  const r = analysis.ruling || {};
+  const dv = analysis.vertical_divider || {};
   const h = analysis.header || {};
-  const fields = h.fields || [];
-  const labels = [...(pre.map(p => p.text)), ...fields].filter(Boolean);
-  if (!labels.length) { document.getElementById('tmplLabels').innerHTML = ''; return; }
+  const fields = (h.fields || []).join(', ');
 
-  document.getElementById('tmplLabels').innerHTML = '<span style="color:#888;">印刷文字（双击编辑）：</span> ' +
-    [...new Set(labels)].map((t, i) =>
-      `<span class="tmpl-editable-label" contenteditable="true" data-idx="${i}"
-            style="display:inline-block;margin:2px 4px;padding:2px 6px;background:#f0f4f8;border:1px solid #ccc;border-radius:3px;cursor:text;"
-            onblur="syncLabelsFromDOM()">${t}</span>`
-    ).join('');
+  const rows = [
+    `<tr><td colspan="2" style="padding:6px 0 4px;font-weight:600;color:#555;">边距</td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">上边距 (mm)</td><td><input type="number" step="0.5" value="${m.top_mm||24}" data-key="margins.top_mm" onchange="onParamChange(this)"></td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">下边距 (mm)</td><td><input type="number" step="0.5" value="${m.bottom_mm||24}" data-key="margins.bottom_mm" onchange="onParamChange(this)"></td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">左边距 (mm)</td><td><input type="number" step="0.5" value="${m.left_mm||24}" data-key="margins.left_mm" onchange="onParamChange(this)"></td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">右边距 (mm)</td><td><input type="number" step="0.5" value="${m.right_mm||18}" data-key="margins.right_mm" onchange="onParamChange(this)"></td></tr>`,
+    `<tr><td colspan="2" style="padding:8px 0 4px;font-weight:600;color:#555;">横线</td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">行数</td><td><input type="number" step="1" value="${r.line_count||18}" data-key="ruling.line_count" onchange="onParamChange(this)"></td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">行距 (mm)</td><td><input type="number" step="0.5" value="${r.line_spacing_mm||8}" data-key="ruling.line_spacing_mm" onchange="onParamChange(this)"></td></tr>`,
+    `<tr><td colspan="2" style="padding:8px 0 4px;font-weight:600;color:#555;">反思栏</td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">竖线位置 (mm)</td><td><input type="number" step="0.5" value="${dv.x_mm||175}" data-key="vertical_divider.x_mm" onchange="onParamChange(this)"></td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">反思标签</td><td><input type="text" value="${(analysis.reflection_zone||{}).label||'教学反思'}" data-key="reflection_zone.label" onchange="onParamChange(this)" style="width:120px;"></td></tr>`,
+    `<tr><td colspan="2" style="padding:8px 0 4px;font-weight:600;color:#555;">文字</td></tr>`,
+    `<tr><td style="padding:3px 8px 3px 12px;">标题/字段</td><td><input type="text" value="${fields.replace(/"/g, '&quot;')}" data-key="header.fields_csv" onchange="onParamChange(this)" style="width:100%;" placeholder="逗号分隔：标题,第__周,课题：____"></td></tr>`,
+  ];
+
+  document.getElementById('tmplParams').innerHTML = rows.join('');
 }
 
-function syncLabelsFromDOM() {
-  const els = document.querySelectorAll('.tmpl-editable-label');
-  const texts = Array.from(els).map(e => e.textContent.trim()).filter(Boolean);
-  tmplAnalysis.header = tmplAnalysis.header || {};
-  tmplAnalysis.header.fields = texts;
-  tmplAnalysis.preprinted_text = texts.map(t => ({text: t, position: 'top-left'}));
+function onParamChange(input) {
+  const key = input.dataset.key;
+  let val = input.value;
+  if (input.type === 'number') val = parseFloat(val);
+
+  // Update tmplAnalysis
+  if (key === 'header.fields_csv') {
+    tmplAnalysis.header = tmplAnalysis.header || {};
+    tmplAnalysis.header.fields = val.split(',').map(s => s.trim()).filter(Boolean);
+  } else {
+    const parts = key.split('.');
+    let obj = tmplAnalysis;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!obj[parts[i]]) obj[parts[i]] = {};
+      obj = obj[parts[i]];
+    }
+    obj[parts[parts.length - 1]] = val;
+  }
+
+  // Debounce preview refresh
+  clearTimeout(tmplPreviewTimer);
+  tmplPreviewTimer = setTimeout(refreshPreview, 500);
+}
+
+async function refreshPreview() {
+  if (!tmplAnalysis) return;
+  try {
+    const r = await fetch('/api/templates/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tmplAnalysis)
+    });
+    if (r.ok) {
+      const blob = await r.blob();
+      document.getElementById('tmplPreview').src = URL.createObjectURL(blob);
+    }
+  } catch(e) {}
 }
 
 async function saveTemplate() {
   if (!tmplAnalysis) return showError('没有分析结果可保存');
-  syncAnalysisFromOverlay();
-  syncLabelsFromDOM();
   tmplAnalysis.name = document.getElementById('tmplName').value.trim() || '未命名模板';
-  // Pass photo temp ID so server can save the background photo
-  if (tmplPhotoId) tmplAnalysis._photo_temp_id = tmplPhotoId;
 
   try {
     const r = await fetch('/api/templates/save', {
@@ -1711,9 +1493,8 @@ async function saveTemplate() {
     if (!data.success) throw new Error(data.detail || '保存失败');
 
     document.getElementById('tmplResult').classList.add('hidden');
-    tmplAnalysis = null; tmplPhotoUrl = null; tmplPhotoId = null;
+    tmplAnalysis = null;
     document.getElementById('tmplFileInput').value = '';
-    document.getElementById('tmplPhoto').src = '';
     await loadTemplates();
     showSuccess('模板已保存');
   } catch(e) {
@@ -1724,8 +1505,7 @@ async function saveTemplate() {
 function cancelTemplate() {
   document.getElementById('tmplResult').classList.add('hidden');
   document.getElementById('tmplFileInput').value = '';
-  document.getElementById('tmplPhoto').src = '';
-  tmplAnalysis = null; tmplPhotoUrl = null; tmplPhotoId = null;
+  tmplAnalysis = null;
 }
 
 async function deleteCustomTemplate(id) {
