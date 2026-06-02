@@ -544,24 +544,28 @@
 
         <!-- Analysis result: photo + draggable boundary overlay -->
         <div id="tmplResult" class="hidden" style="margin-top:12px;">
-          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">拖动边界框调整写作区，双击印刷文字可编辑</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">拖四个角调整写作区，拖红色竖线调反思区分割，印刷文字可编辑</div>
           <div id="tmplPreviewContainer" style="position:relative;display:inline-block;max-width:100%;cursor:default;user-select:none;">
             <img id="tmplPhoto" src="" alt="模板照片" style="width:100%;display:block;border-radius:6px;border:1px solid #ddd;">
-            <!-- Writing area overlay -->
             <div id="tmplOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
-              <div id="tmplWARect" style="position:absolute;border:2px dashed #4a90d9;background:rgba(74,144,217,0.08);pointer-events:auto;"></div>
-              <!-- 4 corner handles -->
-              <div id="tmplHandleTL" class="tmpl-handle" style="position:absolute;width:16px;height:16px;background:#4a90d9;border:2px solid #fff;border-radius:50%;cursor:nw-resize;pointer-events:auto;z-index:2;"></div>
-              <div id="tmplHandleTR" class="tmpl-handle" style="position:absolute;width:16px;height:16px;background:#4a90d9;border:2px solid #fff;border-radius:50%;cursor:ne-resize;pointer-events:auto;z-index:2;"></div>
-              <div id="tmplHandleBL" class="tmpl-handle" style="position:absolute;width:16px;height:16px;background:#4a90d9;border:2px solid #fff;border-radius:50%;cursor:sw-resize;pointer-events:auto;z-index:2;"></div>
-              <div id="tmplHandleBR" class="tmpl-handle" style="position:absolute;width:16px;height:16px;background:#4a90d9;border:2px solid #fff;border-radius:50%;cursor:se-resize;pointer-events:auto;z-index:2;"></div>
-              <!-- Divider line -->
-              <div id="tmplDivider" style="position:absolute;width:3px;background:#e74c3c;cursor:ew-resize;pointer-events:auto;z-index:2;display:none;">
-                <div style="position:absolute;top:-8px;left:-4px;width:12px;height:12px;background:#e74c3c;border:2px solid #fff;border-radius:50%;"></div>
+              <!-- Dark mask: 4 strips around the writing area -->
+              <div id="tmplMaskTop" style="position:absolute;top:0;left:0;width:100%;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
+              <div id="tmplMaskBottom" style="position:absolute;left:0;width:100%;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
+              <div id="tmplMaskLeft" style="position:absolute;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
+              <div id="tmplMaskRight" style="position:absolute;background:rgba(0,0,0,0.35);pointer-events:none;"></div>
+              <!-- Writing area border -->
+              <div id="tmplWABorder" style="position:absolute;border:2px dashed #4a90d9;pointer-events:none;"></div>
+              <!-- 4 corner drag handles -->
+              <div id="tmplHandleTL" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:nw-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
+              <div id="tmplHandleTR" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:ne-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
+              <div id="tmplHandleBL" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:sw-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
+              <div id="tmplHandleBR" style="position:absolute;width:20px;height:20px;background:#4a90d9;border:3px solid #fff;border-radius:50%;cursor:se-resize;pointer-events:auto;z-index:3;box-shadow:0 0 4px rgba(0,0,0,0.3);"></div>
+              <!-- Draggable divider -->
+              <div id="tmplDivider" style="position:absolute;width:4px;background:#e74c3c;cursor:ew-resize;pointer-events:auto;z-index:3;display:none;box-shadow:0 0 3px rgba(0,0,0,0.2);">
+                <div style="position:absolute;top:-10px;left:-5px;width:14px;height:14px;background:#e74c3c;border:2px solid #fff;border-radius:50%;box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>
               </div>
             </div>
           </div>
-          <!-- Editable printed text labels -->
           <div id="tmplLabels" style="margin-top:8px;font-size:12px;"></div>
           <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
             <label style="font-size:12px;">模板名称</label>
@@ -1416,64 +1420,110 @@ async function handleTemplateFile(event) {
   }
 }
 
-// ── Overlay: draggable writing area + divider ──
+// ── Overlay: dark mask + draggable writing area + divider ──
 
 function setupOverlay() {
   const a = tmplAnalysis;
-  const wa = a.writing_area || {x_mm:25,y_mm:40,width_mm:160,height_mm:230};
+  let wa = a.writing_area || {};
+
+  // ── Validate/fix writing area ──
+  // If GLM gave garbage (tiny box or way off), use sensible defaults
   const pageW = (a.page && a.page.width_mm) || 210;
   const pageH = (a.page && a.page.height_mm) || 297;
 
-  const container = document.getElementById('tmplPreviewContainer');
-  // Wait for image to load to get actual pixel size
+  if (!wa.width_mm || wa.width_mm < 60 || !wa.height_mm || wa.height_mm < 80
+      || wa.x_mm < 0 || wa.y_mm < 0 || wa.x_mm > 100 || wa.y_mm > 160) {
+    // Default: writing area fills most of the page with ~25mm margins
+    wa = {
+      x_mm: 25, y_mm: 45,
+      width_mm: pageW - 50,
+      height_mm: pageH - 70,
+    };
+    a.writing_area = wa;
+    a.margins = {
+      top_mm: wa.y_mm, bottom_mm: pageH - wa.y_mm - wa.height_mm,
+      left_mm: wa.x_mm, right_mm: pageW - wa.x_mm - wa.width_mm,
+    };
+  }
+
+  // If no divider yet, add a default one at 175mm from left
+  if (!a.vertical_divider || !a.vertical_divider.exists) {
+    a.vertical_divider = a.vertical_divider || {};
+  }
+  // If divider x is weird, default to 175mm
+  if (!a.vertical_divider.x_mm || a.vertical_divider.x_mm < 150 || a.vertical_divider.x_mm > 200) {
+    a.vertical_divider.exists = true;
+    a.vertical_divider.x_mm = 175;
+  }
+  if (!a.reflection_zone || !a.reflection_zone.exists) {
+    a.reflection_zone = {exists: true, label: '教学反思',
+      x_mm: a.vertical_divider.x_mm,
+      width_mm: pageW - a.vertical_divider.x_mm - (a.margins?.right_mm || 18)};
+  }
+
+  // ── Wait for image to load ──
   const photo = document.getElementById('tmplPhoto');
-  photo.onload = function() {
+  function positionOverlay() {
     const cw = photo.clientWidth;
     const ch = photo.clientHeight;
-    const ppm = cw / pageW; // px per mm
+    if (cw < 10) return setTimeout(positionOverlay, 50); // not ready
+    const ppm = cw / pageW;
 
-    function px(v) { return v * ppm; }
+    function px(v) { return Math.round(v * ppm); }
 
-    // Position writing area rect
-    const rect = document.getElementById('tmplWARect');
-    rect.style.left = px(wa.x_mm) + 'px';
-    rect.style.top = px(wa.y_mm) + 'px';
-    rect.style.width = px(wa.width_mm) + 'px';
-    rect.style.height = px(wa.height_mm) + 'px';
+    const waX = px(wa.x_mm), waY = px(wa.y_mm);
+    const waW = px(wa.width_mm), waH = px(wa.height_mm);
 
-    // Position corner handles
-    setHandle('tmplHandleTL', wa.x_mm, wa.y_mm);
-    setHandle('tmplHandleTR', wa.x_mm + wa.width_mm, wa.y_mm);
-    setHandle('tmplHandleBL', wa.x_mm, wa.y_mm + wa.height_mm);
-    setHandle('tmplHandleBR', wa.x_mm + wa.width_mm, wa.y_mm + wa.height_mm);
+    // ── Dark masks around writing area ──
+    document.getElementById('tmplMaskTop').style.cssText =
+      `height:${waY}px;`;
+    document.getElementById('tmplMaskBottom').style.cssText =
+      `top:${waY+waH}px;height:${ch-waY-waH}px;`;
+    document.getElementById('tmplMaskLeft').style.cssText =
+      `top:${waY}px;left:0;width:${waX}px;height:${waH}px;`;
+    document.getElementById('tmplMaskRight').style.cssText =
+      `top:${waY}px;left:${waX+waW}px;width:${cw-waX-waW}px;height:${waH}px;`;
 
-    // Position divider
+    // ── Writing area border ──
+    document.getElementById('tmplWABorder').style.cssText =
+      `left:${waX}px;top:${waY}px;width:${waW}px;height:${waH}px;`;
+
+    // ── Corner handles ──
+    const setH = (id, x, y) => {
+      const el = document.getElementById(id);
+      el.style.left = (x - 10) + 'px';
+      el.style.top = (y - 10) + 'px';
+    };
+    setH('tmplHandleTL', waX, waY);
+    setH('tmplHandleTR', waX + waW, waY);
+    setH('tmplHandleBL', waX, waY + waH);
+    setH('tmplHandleBR', waX + waW, waY + waH);
+
+    // ── Divider ──
     const dv = a.vertical_divider || {};
     const dvEl = document.getElementById('tmplDivider');
     if (dv.exists && dv.x_mm) {
-      dvEl.style.display = 'block';
-      dvEl.style.left = px(dv.x_mm) + 'px';
-      dvEl.style.top = px(wa.y_mm) + 'px';
-      dvEl.style.height = px(wa.height_mm) + 'px';
+      dvEl.style.cssText = `display:block;left:${px(dv.x_mm)}px;top:${waY}px;height:${waH}px;`;
     } else {
       dvEl.style.display = 'none';
     }
 
-    // Setup drag on handles
+    // Setup drag
     setupDrag('tmplHandleTL', 'tl');
     setupDrag('tmplHandleTR', 'tr');
     setupDrag('tmplHandleBL', 'bl');
     setupDrag('tmplHandleBR', 'br');
     setupDividerDrag();
 
-    // Render editable labels
+    // Labels
     renderLabels(a);
-  };
+  }
 
-  function setHandle(id, x_mm, y_mm) {
-    const el = document.getElementById(id);
-    el.style.left = px(x_mm - 0.6) + 'px';
-    el.style.top = px(y_mm - 0.6) + 'px';
+  // If image already loaded, position now; otherwise wait
+  if (photo.complete && photo.naturalWidth > 0) {
+    positionOverlay();
+  } else {
+    photo.onload = positionOverlay;
   }
 }
 
@@ -1488,13 +1538,13 @@ function setupDrag(handleId, corner) {
     tmplDragStart.x = (e.touches ? e.touches[0].clientX : e.clientX);
     tmplDragStart.y = (e.touches ? e.touches[0].clientY : e.clientY);
 
-    // Read current rect position in px
-    const rect = document.getElementById('tmplWARect');
+    // Read current rect position in px from border element
+    const border = document.getElementById('tmplWABorder');
     tmplDragStart.rect = {
-      left: parseFloat(rect.style.left),
-      top: parseFloat(rect.style.top),
-      width: parseFloat(rect.style.width),
-      height: parseFloat(rect.style.height),
+      left: parseFloat(border.style.left) || 0,
+      top: parseFloat(border.style.top) || 0,
+      width: parseFloat(border.style.width) || 100,
+      height: parseFloat(border.style.height) || 100,
     };
 
     const onMove = function(ev) {
@@ -1509,27 +1559,37 @@ function setupDrag(handleId, corner) {
       if (corner === 'br') { newW = r.width + dx; newH = r.height + dy; }
 
       if (newW < 40 || newH < 40) return;
-      const rectEl = document.getElementById('tmplWARect');
-      rectEl.style.left = newL + 'px';
-      rectEl.style.top = newT + 'px';
-      rectEl.style.width = newW + 'px';
-      rectEl.style.height = newH + 'px';
+
+      // Update WA border
+      document.getElementById('tmplWABorder').style.cssText =
+        `left:${newL}px;top:${newT}px;width:${newW}px;height:${newH}px;`;
+
+      // Update dark masks
+      const cw = document.getElementById('tmplPhoto').clientWidth;
+      const ch = document.getElementById('tmplPhoto').clientHeight;
+      document.getElementById('tmplMaskTop').style.height = newT + 'px';
+      document.getElementById('tmplMaskBottom').style.cssText =
+        `top:${newT+newH}px;height:${ch-newT-newH}px;`;
+      document.getElementById('tmplMaskLeft').style.cssText =
+        `top:${newT}px;left:0;width:${newL}px;height:${newH}px;`;
+      document.getElementById('tmplMaskRight').style.cssText =
+        `top:${newT}px;left:${newL+newW}px;width:${cw-newL-newW}px;height:${newH}px;`;
 
       // Move handles
-      document.getElementById('tmplHandleTL').style.left = newL + 'px';
-      document.getElementById('tmplHandleTL').style.top = newT + 'px';
-      document.getElementById('tmplHandleTR').style.left = (newL + newW) + 'px';
-      document.getElementById('tmplHandleTR').style.top = newT + 'px';
-      document.getElementById('tmplHandleBL').style.left = newL + 'px';
-      document.getElementById('tmplHandleBL').style.top = (newT + newH) + 'px';
-      document.getElementById('tmplHandleBR').style.left = (newL + newW) + 'px';
-      document.getElementById('tmplHandleBR').style.top = (newT + newH) + 'px';
+      document.getElementById('tmplHandleTL').style.left = (newL - 10) + 'px';
+      document.getElementById('tmplHandleTL').style.top = (newT - 10) + 'px';
+      document.getElementById('tmplHandleTR').style.left = (newL + newW - 10) + 'px';
+      document.getElementById('tmplHandleTR').style.top = (newT - 10) + 'px';
+      document.getElementById('tmplHandleBL').style.left = (newL - 10) + 'px';
+      document.getElementById('tmplHandleBL').style.top = (newT + newH - 10) + 'px';
+      document.getElementById('tmplHandleBR').style.left = (newL + newW - 10) + 'px';
+      document.getElementById('tmplHandleBR').style.top = (newT + newH - 10) + 'px';
 
-      // Move divider to stay with new rect
-      const dv = document.getElementById('tmplDivider');
-      if (dv.style.display !== 'none') {
-        dv.style.top = newT + 'px';
-        dv.style.height = newH + 'px';
+      // Move divider
+      const dvEl = document.getElementById('tmplDivider');
+      if (dvEl.style.display !== 'none') {
+        dvEl.style.top = newT + 'px';
+        dvEl.style.height = newH + 'px';
       }
     };
 
@@ -1584,15 +1644,15 @@ function setupDividerDrag() {
 }
 
 function syncAnalysisFromOverlay() {
-  const rect = document.getElementById('tmplWARect');
+  const border = document.getElementById('tmplWABorder');
   const photo = document.getElementById('tmplPhoto');
   const cw = photo.clientWidth;
   const ppm = cw / ((tmplAnalysis.page && tmplAnalysis.page.width_mm) || 210);
 
-  const left = parseFloat(rect.style.left) / ppm;
-  const top = parseFloat(rect.style.top) / ppm;
-  const w = parseFloat(rect.style.width) / ppm;
-  const h = parseFloat(rect.style.height) / ppm;
+  const left = parseFloat(border.style.left) / ppm;
+  const top = parseFloat(border.style.top) / ppm;
+  const w = parseFloat(border.style.width) / ppm;
+  const h = parseFloat(border.style.height) / ppm;
 
   tmplAnalysis.writing_area = { x_mm: Math.round(left*10)/10, y_mm: Math.round(top*10)/10,
     width_mm: Math.round(w*10)/10, height_mm: Math.round(h*10)/10 };

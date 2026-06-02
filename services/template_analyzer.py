@@ -228,18 +228,24 @@ class TemplateAnalyzer:
     def _build_config(self, glm: dict) -> dict:
         glm_ok = isinstance(glm, dict) and glm.get("source") not in ("glm_unavailable", "glm_error")
 
-        # Writing area (GLM provides)
-        wa = {
-            "x_mm": 25, "y_mm": 40,
-            "width_mm": 160, "height_mm": 230,
-        }
+        # Writing area — validate GLM values, use defaults if unreasonable
+        wa = {"x_mm": 25, "y_mm": 40, "width_mm": 160, "height_mm": 230}
         if glm_ok:
-            wa = {
-                "x_mm": glm.get("writing_area_left_mm", 25),
-                "y_mm": glm.get("writing_area_top_mm", 40),
-                "width_mm": glm.get("writing_area_right_mm", 185) - glm.get("writing_area_left_mm", 25),
-                "height_mm": glm.get("writing_area_bottom_mm", 270) - glm.get("writing_area_top_mm", 40),
-            }
+            gl_x = glm.get("writing_area_left_mm", 25)
+            gl_y = glm.get("writing_area_top_mm", 40)
+            gl_r = glm.get("writing_area_right_mm", 185)
+            gl_b = glm.get("writing_area_bottom_mm", 270)
+            gl_w = gl_r - gl_x
+            gl_h = gl_b - gl_y
+
+            # Reject obviously wrong values (width < 80mm or height < 120mm,
+            # or left > 100mm, or top > 150mm)
+            if (gl_w >= 80 and gl_h >= 120 and gl_x < 100 and gl_y < 150):
+                wa = {"x_mm": gl_x, "y_mm": gl_y,
+                      "width_mm": gl_w, "height_mm": gl_h}
+            else:
+                self.warnings.append(
+                    f"GLM写作区坐标异常(w={gl_w}mm,h={gl_h}mm,x={gl_x},y={gl_y})，使用默认值")
 
         # Divider
         divider = {"exists": False, "x_mm": None}
